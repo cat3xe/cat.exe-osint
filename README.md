@@ -29,6 +29,16 @@ Les calculs géographiques (distance, azimut, soleil) sont exacts : ellipsoïde 
 
 Outils dédiés à la vérification : **Même personne ?** (recoupement de profils), **Cohérence d'une photo**, **Ligne de vue** (relief réel), **Relèvement** (position par azimuts), **DNS recoupé** (3 résolveurs), **Bilan de fiabilité** du dossier.
 
+## Quel fichier lancer
+| Ce que tu veux | Fichier à lancer | Ce qu'il fait |
+|---|---|---|
+| Utiliser l'outil (Windows) | **`LANCER.bat`** | Installe Python 3.14 et les modules si besoin, puis démarre l'outil |
+| Utiliser l'outil (Mac / Linux) | **`lancer.sh`** | Installe les modules, puis démarre l'outil |
+| Créer le `.exe` (Windows) | **`CREER_EXE.bat`** | Crée le dossier `CatExe-OSINT` avec `CatExe-OSINT.exe` |
+| Lancer les tests | `python -m unittest discover -s tests` | Vérifie les calculs et les contrôles |
+
+**Ne lance pas** `osint_tool.py` ni `geo_core.py` directement : `osint_tool.py` est le programme principal, lancé par les scripts ci-dessus, et `geo_core.py` est une bibliothèque qu'il charge tout seul. Les deux doivent rester dans le même dossier.
+
 ## Structure
 - `osint_tool.py` : interface, recherches réseau, rapports.
 - `geo_core.py` : calculs purs (géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité). À garder dans le même dossier que `osint_tool.py`.
