@@ -16,7 +16,7 @@ Tape des lettres pour chercher un module (ex. « ip », « deco », « mail »).
 CARTES : les pages s'ouvrent via un petit serveur local (http://127.0.0.1) et utilisent des fonds de carte
 sans cle (Esri, OpenStreetMap…). Si un fond est bloque, la carte bascule toute seule sur un autre.
 
-NOUVEAU EN v4
+NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → images
 - Apprendre a coder : 23 langages, cours, sujets libres sans limite, exercices corriges, prof IA,
   parcours « cree ton propre outil OSINT » (7 etapes jusqu'au .exe), export des lecons en PDF.
 - Fuite de mot de passe (sans l'envoyer) · Decodeur d'ID & dates cachees (TikTok, X, Insta, Discord…)
@@ -119,13 +119,13 @@ NOUVEAU : tutos par module
   Il s'affiche a la 1re ouverture du module, puis a tout moment avec la touche ? dans le menu.
   (Reglages > Reafficher les tutos pour les revoir automatiquement.)
 
-NOUVEAU : mise à jour 5.1
+NOUVEAU : ajouts précédents (suite)
 - Graphe d'enquete (facon Obsidian / Maltego) : fenetre a part qui dessine ton enquete en toile
   (pseudos, comptes, emails, IP, lieux…). Chaque module l'alimente tout seul, en direct.
   Ajouter / relier des elements, notes, recherche, filtres par type, export en image.
   Plusieurs enquetes possibles (dossier resultats/enquetes).
 
-NOUVEAU : version 5
+NOUVEAU : ajouts précédents
 - Nouveau design (palette cyan / violet) et menus par pages (n / p)
 - Image -> coordonnees : GPS cache, sinon estimation par l'IA locale (GeoCLIP + vision), carte
 - IP lookup : pays, ville, operateur, ASN, VPN / proxy / Tor, ports et failles, sites sur la meme IP

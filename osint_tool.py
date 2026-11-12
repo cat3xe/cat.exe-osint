@@ -771,7 +771,7 @@ def ask_text(q, default=None, password=False):
 
 
 # ============================================================ 1. GÉOLOC PHOTO
-NOMI = {"User-Agent": "CatExe-OSINT/2.1 (outil d'audit)"}
+NOMI = {"User-Agent": "CatExe-OSINT (outil d'audit)"}
 
 
 def _dms(v):
@@ -4596,7 +4596,7 @@ def boot():
         time.sleep(.45)
 
 
-# ============================================================ NOUVEAUX MODULES v4
+# ============================================================ NOUVEAUX MODULES
 def fmt_dt(dt):
     """Date UTC → texte « JJ/MM/AAAA HH:MM:SS UTC (heure de Paris …) »."""
     try:
@@ -6758,7 +6758,7 @@ def mod_learn():
 
 
 # ============================================================ MENU PRINCIPAL
-# ============================================================ v5 : PAGES + NOUVEAUX MODULES OSINT
+# ============================================================ PAGES + NOUVEAUX MODULES OSINT
 import ipaddress, secrets, string, hashlib as _hl
 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _asc
 
@@ -7115,7 +7115,7 @@ def sl_github(u):
 
 
 def sl_reddit(u):
-    h = {"User-Agent": "catexe-osint/5.0"}
+    h = {"User-Agent": "catexe-osint"}
     r = get(f"https://www.reddit.com/user/{u}/about.json", 10, headers=h)
     if r.status_code == 404:
         return None
