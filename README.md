@@ -29,6 +29,11 @@ Les calculs géographiques (distance, azimut, soleil) sont exacts : ellipsoïde 
 
 Outils dédiés à la vérification : **Même personne ?** (recoupement de profils), **Cohérence d'une photo**, **Ligne de vue** (relief réel), **Relèvement** (position par azimuts), **DNS recoupé** (3 résolveurs), **Bilan de fiabilité** du dossier.
 
+## Structure
+- `osint_tool.py` : interface, recherches réseau, rapports.
+- `geo_core.py` : calculs purs (géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité). À garder dans le même dossier que `osint_tool.py`.
+- `tests/` : tests automatiques (`python -m unittest discover -s tests`). Les réseaux y sont simulés.
+
 ## Installation
 ```
 py -3.14 -m pip install -r requirements.txt

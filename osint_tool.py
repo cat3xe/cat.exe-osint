@@ -8,6 +8,8 @@ A utiliser sur tes propres comptes, domaines et photos, ou avec l'accord de la p
 import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrowser, random, hashlib
 import concurrent.futures as cf
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from geo_core import (EDITORS, FIAB, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, coords_only, coords_valid, ctrl_name, dns_agree, fmt_dist, geodesic, geodesic_dest, haversine, ip_consensus, los_compute, match_verdict, photo_checks, profile_match, resect, sun_pos)  # calculs purs, testés dans tests/
 
 try:
     import requests
@@ -420,98 +422,20 @@ def open_file(path):
     return url
 
 
-def haversine(a, b, c, d):
-    """Distance rapide sur une sphère (km), erreur max ≈ 0,5 %. Pour une mesure exacte : geodesic()."""
-    r = math.radians
-    h = math.sin(r(c - a) / 2) ** 2 + math.cos(r(a)) * math.cos(r(c)) * math.sin(r(d - b) / 2) ** 2
-    return 2 * 6371.0088 * math.asin(math.sqrt(min(1.0, h)))
 
 
-WGS_A, WGS_F = 6378137.0, 1 / 298.257223563
-WGS_B = WGS_A * (1 - WGS_F)
 
 
-def geodesic(lat1, lon1, lat2, lon2):
-    """Distance exacte sur l'ellipsoïde WGS84 (Vincenty, précision ≈ 1 mm).
-    Renvoie (km, azimut de départ °, azimut d'arrivée °)."""
-    if abs(lat1 - lat2) < 1e-12 and abs((lon1 - lon2 + 180) % 360 - 180) < 1e-12:
-        return 0.0, 0.0, 0.0
-    f, a, b = WGS_F, WGS_A, WGS_B
-    U1, U2 = math.atan((1 - f) * math.tan(math.radians(lat1))), math.atan((1 - f) * math.tan(math.radians(lat2)))
-    L = math.radians((lon2 - lon1 + 180) % 360 - 180)
-    sU1, cU1, sU2, cU2 = math.sin(U1), math.cos(U1), math.sin(U2), math.cos(U2)
-    lam = L
-    for _ in range(200):
-        sl, cl = math.sin(lam), math.cos(lam)
-        ss = math.hypot(cU2 * sl, cU1 * sU2 - sU1 * cU2 * cl)
-        if ss == 0:
-            return 0.0, 0.0, 0.0
-        cs = sU1 * sU2 + cU1 * cU2 * cl
-        sig = math.atan2(ss, cs)
-        sa = cU1 * cU2 * sl / ss
-        c2a = 1 - sa * sa
-        c2m = cs - 2 * sU1 * sU2 / c2a if c2a else 0.0
-        C = f / 16 * c2a * (4 + f * (4 - 3 * c2a))
-        new = L + (1 - C) * f * sa * (sig + C * ss * (c2m + C * cs * (-1 + 2 * c2m * c2m)))
-        if abs(new - lam) < 1e-12:
-            lam = new
-            break
-        lam = new
-    else:  # points presque aux antipodes : la série ne converge pas, on retombe sur la sphère
-        from_ = haversine(lat1, lon1, lat2, lon2)
-        return from_, _sph_bearing(lat1, lon1, lat2, lon2), (_sph_bearing(lat2, lon2, lat1, lon1) + 180) % 360
-    sl, cl = math.sin(lam), math.cos(lam)
-    u2 = c2a * (a * a - b * b) / (b * b)
-    A = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)))
-    B = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)))
-    ds = B * ss * (c2m + B / 4 * (cs * (-1 + 2 * c2m * c2m) - B / 6 * c2m * (-3 + 4 * ss * ss) * (-3 + 4 * c2m * c2m)))
-    dist = b * A * (sig - ds)
-    az1 = math.degrees(math.atan2(cU2 * sl, cU1 * sU2 - sU1 * cU2 * cl)) % 360
-    az2 = math.degrees(math.atan2(cU1 * sl, -sU1 * cU2 + cU1 * sU2 * cl)) % 360
-    return dist / 1000, az1, az2
 
 
-def _sph_bearing(a, b, c, d):
-    y = math.sin(math.radians(d - b)) * math.cos(math.radians(c))
-    x = math.cos(math.radians(a)) * math.sin(math.radians(c)) - math.sin(math.radians(a)) * math.cos(math.radians(c)) * math.cos(math.radians(d - b))
-    return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
-def geodesic_dest(lat, lon, brg, km):
-    """Point d'arrivée exact sur l'ellipsoïde WGS84 (Vincenty direct)."""
-    f, a, b = WGS_F, WGS_A, WGS_B
-    al, s_ = math.radians(brg), km * 1000
-    tU1 = (1 - f) * math.tan(math.radians(lat))
-    cU1 = 1 / math.sqrt(1 + tU1 * tU1)
-    sU1 = tU1 * cU1
-    sig1 = math.atan2(tU1, math.cos(al))
-    sa = cU1 * math.sin(al)
-    c2a = 1 - sa * sa
-    u2 = c2a * (a * a - b * b) / (b * b)
-    A = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)))
-    B = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)))
-    sig = s_ / (b * A)
-    for _ in range(200):
-        c2m = math.cos(2 * sig1 + sig)
-        ss, cs = math.sin(sig), math.cos(sig)
-        ds = B * ss * (c2m + B / 4 * (cs * (-1 + 2 * c2m * c2m) - B / 6 * c2m * (-3 + 4 * ss * ss) * (-3 + 4 * c2m * c2m)))
-        new = s_ / (b * A) + ds
-        if abs(new - sig) < 1e-12:
-            sig = new
-            break
-        sig = new
-    c2m, ss, cs = math.cos(2 * sig1 + sig), math.sin(sig), math.cos(sig)
-    t = sU1 * ss - cU1 * cs * math.cos(al)
-    lat2 = math.atan2(sU1 * cs + cU1 * ss * math.cos(al), (1 - f) * math.hypot(sa, t))
-    lam = math.atan2(ss * math.sin(al), cU1 * cs - sU1 * ss * math.cos(al))
-    C = f / 16 * c2a * (4 + f * (4 - 3 * c2a))
-    L = lam - (1 - C) * f * sa * (sig + C * ss * (c2m + C * cs * (-1 + 2 * c2m * c2m)))
-    return math.degrees(lat2), (lon + math.degrees(L) + 540) % 360 - 180
 
 
-# ------------------------------------------------------------ FIABILITÉ (affichée partout : résultats, graphe, rapport)
-# A = lu directement à la source et recoupé · B = l'élément existe, son lien avec la cible reste à prouver · C = estimation / hypothèse
-FIAB = {"A": "vérifié à la source", "B": "existe · lien avec la cible à confirmer", "C": "estimation · à vérifier"}
+# Ce que chaque niveau NE prouve PAS : affiché avec le niveau, partout
+FIAB_LIMITE = {"A": "ne dit pas à qui appartient un compte, seulement ce qui a été lu à la source",
+               "B": "un compte existe, mais rien ne prouve qu'il appartient à la personne recherchée",
+               "C": "estimation : à vérifier avant toute conclusion"}
 FIAB_COL = {"A": "#4caf7a", "B": "#7aa2ff", "C": "#e0a83a"}
 
 
@@ -520,14 +444,8 @@ def fiab_tag(k, detail=""):
     return f"[{FIAB_COL[k]}]● {FIAB[k]}{' · ' + detail if detail else ''}[/]"
 
 
-def ctrl_name(n=12):
-    """Pseudo de contrôle qui n'existe nulle part : sert à repérer les sites qui répondent « trouvé » à tout."""
-    import secrets as _s
-    return "zq" + _s.token_hex(n // 2)
 
 
-def fmt_dist(m):
-    return f"{m:.0f} m" if m < 1000 else f"{m / 1000:.1f} km" if m < 20000 else f"{m / 1000:.0f} km"
 
 
 def parse_json(t):
@@ -1000,8 +918,6 @@ def read_exif(path):
     return img, info, gps, cam
 
 
-def cardinal(deg):
-    return ["nord", "nord-est", "est", "sud-est", "sud", "sud-ouest", "ouest", "nord-ouest"][int((deg % 360 + 22.5) // 45) % 8]
 
 
 def img_b64(img, maxs=1280):
@@ -1575,47 +1491,8 @@ def _ipsrc_free(ip):
 IP_SOURCES = [("ipwho.is", _ipsrc_who), ("ip-api.com", _ipsrc_api), ("ipinfo.io", _ipsrc_info), ("freeipapi.com", _ipsrc_free)]
 
 
-def _norm_city(c):
-    import unicodedata
-    c = "".join(ch for ch in unicodedata.normalize("NFD", str(c or "")) if unicodedata.category(ch) != "Mn").lower()
-    return re.sub(r"[^a-z]", "", c)
 
 
-def ip_consensus(src):
-    """src : {nom: données}. Recoupe les sources et dit ce qui est sûr (pays) et ce qui ne l'est pas (ville, point)."""
-    ok = {k: v for k, v in src.items() if v and v.get("cc")}
-    out = {"n": len(ok), "sources": ok, "cc": None, "country": None, "city": None, "lat": None, "lon": None, "spread_km": None,
-           "cc_agree": 0, "city_agree": 0, "radius_km": None, "level": "C", "resume": "aucune source de géolocalisation n'a répondu"}
-    if not ok:
-        return out
-    from collections import Counter
-    cc, n_cc = Counter(str(v["cc"]).upper() for v in ok.values()).most_common(1)[0]
-    same = {k: v for k, v in ok.items() if str(v["cc"]).upper() == cc}
-    out.update(cc=cc, cc_agree=n_cc, country=next((v.get("country") for v in same.values() if v.get("country")), cc))
-    cities = Counter(_norm_city(v.get("city")) for v in same.values() if v.get("city"))
-    if cities:
-        ck, n_city = cities.most_common(1)[0]
-        out.update(city=next(v["city"] for v in same.values() if _norm_city(v.get("city")) == ck), city_agree=n_city)
-    has_pt = lambda v: v.get("lat") is not None and v.get("lon") is not None
-    pts = [(float(v["lat"]), float(v["lon"])) for v in same.values() if has_pt(v)]
-    all_spread = max((haversine(a[0], a[1], b[0], b[1]) for a in pts for b in pts), default=0)
-    if out["city_agree"] >= 2 and out["city_agree"] > len(same) / 2:
-        # une majorité de sources donne la même ville : on mesure la zone sur elles, la source isolée est signalée à part
-        pts = [(float(v["lat"]), float(v["lon"])) for v in same.values() if has_pt(v) and _norm_city(v.get("city")) == ck] or pts
-    if pts:
-        # point médian = celui qui minimise la distance aux autres (robuste à une source aberrante)
-        best = min(pts, key=lambda p: sum(haversine(p[0], p[1], q[0], q[1]) for q in pts))
-        spread = max((haversine(a[0], a[1], b[0], b[1]) for a in pts for b in pts), default=0)
-        out.update(lat=best[0], lon=best[1], spread_km=spread, radius_km=max(25.0, spread))
-    pays_sur = n_cc >= 2 and n_cc == len(ok)
-    ville_sure = out["city_agree"] >= 2 and out["city_agree"] > len(same) / 2 and (out["spread_km"] or 0) <= 60
-    out["level"] = "A" if pays_sur else "C"
-    out["pays_txt"] = (f"{n_cc}/{len(ok)} sources d'accord" if len(ok) > 1 else "1 seule source a répondu : non recoupé")
-    out["ville_txt"] = ("—" if not out["city"] else f"{out['city_agree']}/{len(same)} sources d'accord"
-                        + (f", écart max {all_spread:.0f} km entre toutes les sources" if len(same) > 1 and all_spread >= 1 else ""))
-    out["ville_sure"] = ville_sure
-    out["resume"] = (f"pays {'sûr' if pays_sur else 'à confirmer'} ({out['pays_txt']}) · ville {'probable' if ville_sure else 'incertaine'} ({out['ville_txt']})")
-    return out
 
 
 def ip_geo(ip):
@@ -2756,46 +2633,10 @@ def to_utm(lat, lon):
     return f"{zone}{band} {x:.0f}E {y:.0f}N"
 
 
-_NUM = r"(\d+(?:[.,]\d+)?)"
-_HEMI_SUF = re.compile(_NUM + r"\s*°?\s*(?:" + _NUM + r"\s*['’′]\s*)?(?:" + _NUM + r"\s*(?:\"|”|″|'')\s*)?\s*([NSEWO])(?![A-Za-z])", re.I)
-_HEMI_PRE = re.compile(r"(?<![A-Za-z])([NSEWO])\s*" + _NUM + r"\s*°?\s*(?:" + _NUM + r"\s*['’′]\s*)?(?:" + _NUM + r"\s*(?:\"|”|″|''))?", re.I)
 
 
-def coords_valid(lat, lon):
-    return -90 <= lat <= 90 and -180 <= lon <= 180
 
 
-def coords_only(s):
-    """Lit des coordonnées écrites (décimal, DMS, avec ou sans N/S/E/O, dans n'importe quel ordre).
-    Renvoie (lat, lon), None si ce n'est pas des coordonnées, ou False si elles sont impossibles."""
-    s = (s or "").strip().replace("，", ",")
-    if not s:
-        return None
-    f = lambda x: float((x or "0").replace(",", "."))
-    if re.fullmatch(r"[\d\s°'’′\"”″.,;:/NSEWOnsewo+-]+", s) and re.search(r"[NSEWO]", s, re.I):
-        parts = [(d, mi, se, h) for d, mi, se, h in _HEMI_SUF.findall(s)]
-        if len(parts) != 2:
-            parts = [(d, mi, se, h) for h, d, mi, se in _HEMI_PRE.findall(s)]
-        if len(parts) == 2:
-            lat = lon = None
-            for d, mi, se, h in parts:
-                if f(mi) >= 60 or f(se) >= 60:
-                    return False
-                v = f(d) + f(mi) / 60 + f(se) / 3600
-                if h.upper() in "NS":
-                    lat = -v if h.upper() == "S" else v
-                else:
-                    lon = -v if h.upper() in "WO" else v
-            if lat is None or lon is None:
-                return False
-            return (lat, lon) if coords_valid(lat, lon) else False
-    m = re.fullmatch(r"([+-]?\d{1,3}(?:\.\d+)?)\s*[,;]\s*([+-]?\d{1,3}(?:\.\d+)?)", s) or \
-        re.fullmatch(r"([+-]?\d{1,3}\.\d+)\s+([+-]?\d{1,3}\.\d+)", s) or \
-        re.fullmatch(r"([+-]?\d{1,3},\d+)\s*[; ]\s*([+-]?\d{1,3},\d+)", s)
-    if m:
-        lat, lon = f(m[1]), f(m[2])
-        return (lat, lon) if coords_valid(lat, lon) else False
-    return None
 
 
 def parse_coords(s, quiet=False):
@@ -2841,46 +2682,8 @@ def overpass(q, timeout=120):
     raise RuntimeError(f"Overpass indisponible ({last}), réessaie dans une minute")
 
 
-# ============================================================ SOLEIL & OMBRES
-def sun_pos(dt, lat, lon, refraction=True):
-    """dt en UTC (naïf). Renvoie (azimut ° depuis le nord, hauteur °).
-    Algorithme NOAA complet (Meeus) : écart < 0,01° sur la position du soleil entre 1900 et 2100.
-    refraction=True : hauteur APPARENTE (celle qu'on voit et que les ombres suivent), corrigée de l'atmosphère."""
-    jd = (dt - datetime.datetime(2000, 1, 1, 12)).total_seconds() / 86400 + 2451545.0
-    T = (jd - 2451545.0) / 36525
-    r, d = math.radians, math.degrees
-    L0 = (280.46646 + T * (36000.76983 + T * 0.0003032)) % 360
-    Mn = 357.52911 + T * (35999.05029 - 0.0001537 * T)
-    e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T)
-    C = math.sin(r(Mn)) * (1.914602 - T * (0.004817 + 0.000014 * T)) + math.sin(r(2 * Mn)) * (0.019993 - 0.000101 * T) + math.sin(r(3 * Mn)) * 0.000289
-    om = 125.04 - 1934.136 * T
-    lam = L0 + C - 0.00569 - 0.00478 * math.sin(r(om))
-    eps = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60 + 0.00256 * math.cos(r(om))
-    de = math.asin(math.sin(r(eps)) * math.sin(r(lam)))
-    y = math.tan(r(eps / 2)) ** 2
-    eq = 4 * d(y * math.sin(2 * r(L0)) - 2 * e * math.sin(r(Mn)) + 4 * e * y * math.sin(r(Mn)) * math.cos(2 * r(L0))
-               - 0.5 * y * y * math.sin(4 * r(L0)) - 1.25 * e * e * math.sin(2 * r(Mn)))
-    mins = dt.hour * 60 + dt.minute + dt.second / 60 + dt.microsecond / 6e7
-    ha = r(((mins + eq + 4 * lon) % 1440) / 4 - 180)
-    p = r(lat)
-    cz = math.sin(p) * math.sin(de) + math.cos(p) * math.cos(de) * math.cos(ha)
-    el = 90 - d(math.acos(max(-1, min(1, cz))))
-    az = (d(math.atan2(math.sin(ha), math.cos(ha) * math.sin(p) - math.tan(de) * math.cos(p))) + 180) % 360
-    if refraction:
-        if el > 85:
-            rf = 0
-        elif el > 5:
-            t = math.tan(r(el))
-            rf = 58.1 / t - 0.07 / t ** 3 + 0.000086 / t ** 5
-        elif el > -0.575:
-            rf = 1735 + el * (-518.2 + el * (103.4 + el * (-12.79 + el * 0.711)))
-        else:
-            rf = -20.772 / math.tan(r(el))
-        el += rf / 3600
-    return az, el
 
 
-SUN_RISE = -0.267  # hauteur apparente du centre du soleil quand son bord supérieur touche l'horizon (lever / coucher officiels)
 
 
 def get_tz(name):
@@ -7789,10 +7592,6 @@ def mod_discord():
     pause()
 
 
-# ------------------------------------------------------------ RECHERCHE DE PERSONNE
-def _strip_acc(s):
-    import unicodedata
-    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn").lower()
 
 
 def email_perms(first, last, domain):
@@ -8487,9 +8286,10 @@ def gnode(typ, label, data=None, parent=None, rel="", short=None, fiab=None, src
         n["data"].update({k: (v if isinstance(v, (str, int, float, bool)) else str(v))[:600] if isinstance(v, str) else v for k, v in data.items() if v not in (None, "", [], {})})
     if fiab in FIAB:
         old = n["data"].get("_fiab")
+        n["data"]["vérifié le"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         if old is None or fiab < old:
             n["data"]["_fiab"] = fiab
-            n["data"]["fiabilité"] = FIAB[fiab]
+            n["data"]["fiabilité"] = FIAB[fiab] + (" · " + FIAB_LIMITE[fiab] if fiab in FIAB_LIMITE else "")
             if src:
                 n["data"]["source"] = src
             if fiab == "C" and new and not n["data"].get("_statut"):
@@ -10379,78 +10179,14 @@ def tuto_gate(fn, name):
     return c == "go"
 
 
-# ============================================================ OUTILS DE PRÉCISION (recouper, mesurer, prouver)
-# ------------------------------------------------------------ 🧬 MÊME PERSONNE ? (recoupement de profils)
-def _norm_name(s):
-    return re.sub(r"[^a-z0-9 ]", "", _strip_acc(str(s or ""))).strip()
 
 
-def _profile_text(d):
-    return " ".join(str(v) for k, v in d.items() if v and k not in ("_img",)).lower()
 
 
-def _profile_handles(name, d):
-    """Façons dont ce profil peut être cité par un autre : son adresse, et pseudo@plateforme."""
-    out = set()
-    u = str(d.get("_url") or "").lower()
-    if u:
-        out.add(re.sub(r"^https?://(www\.)?", "", u).rstrip("/"))
-    return out
 
 
-def profile_match(a, b, same_avatar=None):
-    """Compare deux profils (nom de plateforme, fiche). Renvoie (score 0-100, [preuves], niveau A/B/C).
-    Une preuve « déclarée » (un profil cite l'autre) vaut bien plus qu'une ressemblance."""
-    (na, da), (nb, db) = a, b
-    score, why, declared = 0, [], False
-    ta, tb = _profile_text(da), _profile_text(db)
-    for (n1, d1, t1), (n2, d2, t2) in (((na, da, ta), (nb, db, tb)), ((nb, db, tb), (na, da, ta))):
-        tx = " ".join(str(v) for k, v in d1.items() if v and not k.startswith("_")).lower()
-        if any(h and h in tx for h in _profile_handles(n2, d2)):
-            score += 55
-            declared = True
-            why.append(f"le profil {n1} affiche un lien vers le profil {n2} (déclaré par son propriétaire)")
-    ea, eb = set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", ta)), set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", tb))
-    common = {e for e in ea & eb if "noreply" not in e}
-    if common:
-        score += 45
-        declared = True
-        why.append(f"même email sur les deux profils : {', '.join(sorted(common)[:2])}")
-    if same_avatar is True:
-        score += 40
-        why.append("même photo de profil (empreinte visuelle identique)")
-    n1, n2 = _norm_name(da.get("Nom")), _norm_name(db.get("Nom"))
-    if n1 and n1 == n2:
-        if len(n1.split()) >= 2:
-            score += 20
-            why.append(f"même nom complet affiché : {da.get('Nom')}")
-        elif len(n1) >= 4:
-            score += 6
-            why.append(f"même nom affiché (un seul mot, peu distinctif) : {da.get('Nom')}")
-    sa = {re.sub(r"^https?://(www\.)?", "", x).rstrip("/") for x in re.findall(r"https?://[^\s\"'<>)]+", " ".join(str(da.get(k) or "") for k in ("Site", "Lien", "Bio")).lower())}
-    sb = {re.sub(r"^https?://(www\.)?", "", x).rstrip("/") for x in re.findall(r"https?://[^\s\"'<>)]+", " ".join(str(db.get(k) or "") for k in ("Site", "Lien", "Bio")).lower())}
-    if sa & sb:
-        score += 30
-        why.append(f"même site personnel indiqué : {sorted(sa & sb)[0]}")
-    l1, l2 = _norm_name(da.get("Lieu")), _norm_name(db.get("Lieu"))
-    if l1 and l1 == l2:
-        score += 8
-        why.append(f"même lieu indiqué : {da.get('Lieu')}")
-    score = min(score, 100)
-    level = "A" if declared and score >= 55 else "B" if score >= 40 else "C"
-    return score, why, level
 
 
-def match_verdict(score, level):
-    if level == "A":
-        return "même personne : établi (lien déclaré par le titulaire du compte)"
-    if score >= 60:
-        return "même personne : très probable (plusieurs indices concordants)"
-    if score >= 40:
-        return "même personne : probable, à confirmer par un indice de plus"
-    if score >= 15:
-        return "lien possible, pas prouvé"
-    return "aucun lien démontré : le pseudo identique ne prouve rien"
 
 
 def _avatar_hash(url):
@@ -10542,59 +10278,8 @@ def exif_times(path):
     return out
 
 
-EDITORS = ("photoshop", "lightroom", "gimp", "snapseed", "picsart", "pixelmator", "affinity", "canva", "facetune", "paint.net", "capture one", "luminar", "darktable", "remini")
 
 
-def photo_checks(t, gps, tz_s, lum):
-    """Contrôles de cohérence. t = exif_times(), gps = (lat, lon) ou None, tz_s = décalage horaire réel du lieu (s) ou None,
-    lum = luminosité moyenne du haut de l'image (0-255) ou None. Renvoie [(état ok/warn/bad/info, titre, détail)]."""
-    R_ = []
-    utc = t.get("gps_utc")
-    loc = t.get("local")
-    if loc and utc:
-        diff = (loc - utc).total_seconds()
-        if t.get("offset_s") is not None:
-            ok = abs(diff - t["offset_s"]) <= 120
-            R_.append(("ok" if ok else "bad", "Heure de l'appareil ↔ heure GPS",
-                       f"l'écart ({diff / 3600:+.2f} h) correspond au fuseau enregistré" if ok else
-                       f"écart de {diff / 3600:+.2f} h alors que le fichier annonce UTC{t['offset_s'] / 3600:+.2f} : dates modifiées ou appareil mal réglé"))
-        if tz_s is not None:
-            d2 = abs(diff - tz_s)
-            st = "ok" if d2 <= 180 else "warn" if abs(d2 - 3600) <= 180 else "bad"
-            R_.append((st, "Heure de l'appareil ↔ fuseau du lieu GPS",
-                       f"l'appareil était bien à l'heure locale du lieu (UTC{tz_s / 3600:+.2f})" if st == "ok" else
-                       "1 h d'écart : appareil resté à l'heure d'été / d'hiver, ou pas remis à l'heure" if st == "warn" else
-                       f"l'appareil affiche UTC{diff / 3600:+.2f} mais le lieu GPS est en UTC{tz_s / 3600:+.2f} : appareil réglé sur un autre fuseau (voyage) ou métadonnées retouchées"))
-    elif loc and not utc:
-        R_.append(("info", "Heure GPS", "absente : l'heure vient seulement de l'horloge de l'appareil, que son propriétaire peut régler comme il veut"))
-    if utc is None and loc and (t.get("offset_s") is not None or tz_s is not None):
-        utc = loc - datetime.timedelta(seconds=t["offset_s"] if t.get("offset_s") is not None else tz_s)
-    if utc and gps:
-        az, el = sun_pos(utc, gps[0], gps[1])
-        phase = "nuit noire" if el < -12 else "crépuscule" if el < -0.8 else "soleil très bas (lever / coucher)" if el < 6 else "plein jour"
-        det = f"à ce moment et à cet endroit : {phase}, soleil à {el:.1f}° de hauteur, azimut {az:.0f}° ({cardinal(az)})"
-        if el > 3:
-            det += f" · une ombre mesure {1 / math.tan(math.radians(el)):.2f} × la hauteur de l'objet et pointe vers le {cardinal((az + 180) % 360)} ({(az + 180) % 360:.0f}°)"
-        R_.append(("info", "Position du soleil calculée", det))
-        if lum is not None:
-            if el < -8 and lum > 140:
-                R_.append(("warn", "Luminosité ↔ heure", f"ciel très clair (luminosité {lum:.0f}/255) alors qu'il faisait nuit : incohérent pour une photo d'extérieur (normal en intérieur éclairé)"))
-            elif el > 12 and lum < 30:
-                R_.append(("warn", "Luminosité ↔ heure", f"image très sombre (luminosité {lum:.0f}/255) alors qu'il faisait plein jour : incohérent pour une photo d'extérieur (normal en intérieur sombre)"))
-            else:
-                R_.append(("ok", "Luminosité ↔ heure", f"la luminosité de l'image ({lum:.0f}/255) est compatible avec l'heure"))
-    if t.get("modified") and loc and abs((t["modified"] - loc).total_seconds()) > 120:
-        R_.append(("warn", "Date de modification", f"fichier ré-enregistré le {t['modified']:%d/%m/%Y %H:%M} (prise de vue : {loc:%d/%m/%Y %H:%M}) : il est passé par un logiciel"))
-    sw = (t.get("software") or "").lower()
-    if any(e in sw for e in EDITORS):
-        R_.append(("warn", "Logiciel", f"« {t['software']} » : logiciel de retouche, l'image a pu être modifiée"))
-    elif t.get("software"):
-        R_.append(("info", "Logiciel", f"« {t['software']} » (logiciel de l'appareil ou d'export)"))
-    if loc and loc > datetime.datetime.now() + datetime.timedelta(days=1):
-        R_.append(("bad", "Date", "la photo est datée dans le futur : horloge fausse ou date modifiée"))
-    if not loc and not utc:
-        R_.append(("info", "Dates", "aucune date dans le fichier (normal pour une image passée par un réseau social ou une messagerie : les métadonnées sont effacées)"))
-    return R_
 
 
 def mod_photocheck():
@@ -10674,23 +10359,6 @@ def elevations(pts):
     return out
 
 
-def los_compute(d_km, elev, obs_h, tgt_h, k=0.13):
-    """Ligne de vue entre le premier et le dernier point d'un profil.
-    d_km : distances depuis l'observateur · elev : altitudes du sol (m) · k : réfraction de l'air (0,13 = standard).
-    Renvoie {visible, marge_m, i_bloc, cache_m (hauteur de la cible masquée), besoin_m (hauteur mini de la cible pour être vue)}."""
-    D = d_km[-1]
-    Reff = 6371.0088 / (1 - k)
-    hA, hB = elev[0] + obs_h, elev[-1] + tgt_h
-    marge, i_bloc, need_top = float("inf"), None, elev[-1]
-    for i in range(1, len(d_km) - 1):
-        d = d_km[i]
-        obst = elev[i] + d * (D - d) / (2 * Reff) * 1000  # sol + bombement de la Terre vu depuis la corde A-B
-        line = hA + (hB - hA) * d / D
-        if line - obst < marge:
-            marge, i_bloc = line - obst, i
-        need_top = max(need_top, hA + (obst - hA) * D / d)
-    cache = max(0.0, need_top - elev[-1])
-    return {"visible": marge > 0, "marge_m": marge, "i_bloc": i_bloc, "cache_m": min(cache, tgt_h) if tgt_h else cache, "besoin_m": cache}
 
 
 def mod_los():
@@ -10744,46 +10412,6 @@ def mod_los():
     pause()
 
 
-# ------------------------------------------------------------ 📐 RELÈVEMENT : position par recoupement d'azimuts
-def resect(obs, sigma=3.0, n_mc=400, seed=1):
-    """obs : [(lat, lon, azimut)] = repères connus et direction (° depuis le nord) dans laquelle on les voit.
-    Renvoie {lat, lon, r95_m (rayon contenant 95 % des tirages), angle_min (° entre les lignes), behind (repères incohérents)}."""
-    if len(obs) < 2:
-        return None
-    la0 = sum(o[0] for o in obs) / len(obs)
-    lo0 = sum(o[1] for o in obs) / len(obs)
-    kx, ky = 111.320 * math.cos(math.radians(la0)), 110.574  # km par degré, plan local
-    P = [((o[1] - lo0) * kx, (o[0] - la0) * ky) for o in obs]
-
-    def solve(bs):
-        a11 = a12 = a22 = b1 = b2 = 0.0
-        for (px, py), b in zip(P, bs):
-            nx, ny = math.cos(math.radians(b)), -math.sin(math.radians(b))  # normale à la ligne de visée
-            c = nx * px + ny * py
-            a11 += nx * nx
-            a12 += nx * ny
-            a22 += ny * ny
-            b1 += nx * c
-            b2 += ny * c
-        det = a11 * a22 - a12 * a12
-        if abs(det) < 1e-9:
-            return None
-        return (b1 * a22 - b2 * a12) / det, (a11 * b2 - a12 * b1) / det
-    bs = [o[2] for o in obs]
-    X = solve(bs)
-    if X is None:
-        return None
-    behind = [i for i, ((px, py), b) in enumerate(zip(P, bs)) if (px - X[0]) * math.sin(math.radians(b)) + (py - X[1]) * math.cos(math.radians(b)) <= 0]
-    amin = min((min(abs((b1 - b2) % 180), 180 - abs((b1 - b2) % 180)) for i, b1 in enumerate(bs) for b2 in bs[i + 1:]), default=0)
-    rnd = random.Random(seed)
-    ds = []
-    for _ in range(n_mc):
-        Y_ = solve([b + rnd.gauss(0, sigma) for b in bs])
-        if Y_:
-            ds.append(math.hypot(Y_[0] - X[0], Y_[1] - X[1]))
-    ds.sort()
-    r95 = ds[int(len(ds) * 0.95) - 1] * 1000 if ds else float("inf")
-    return {"lat": la0 + X[1] / ky, "lon": lo0 + X[0] / kx, "r95_m": r95, "angle_min": amin, "behind": behind}
 
 
 def mod_resect():
@@ -10848,18 +10476,6 @@ def doh(name, typ, i=0):
     return vals, bool(j.get("AD"))
 
 
-def dns_agree(answers):
-    """answers : {résolveur: ensemble ou None}. Renvoie (état, valeurs communes, valeurs vues par certains seulement)."""
-    ok = {k: v for k, v in answers.items() if v is not None}
-    if not ok:
-        return "aucune réponse", set(), set()
-    sets = list(ok.values())
-    common, union = set.intersection(*sets), set.union(*sets)
-    if len(ok) < 2:
-        return "1 seul résolveur a répondu : non recoupé", common, set()
-    if common == union:
-        return f"identique sur {len(ok)} résolveurs", common, set()
-    return ("réponses différentes selon le résolveur", common, union - common)
 
 
 def mod_dnscheck():

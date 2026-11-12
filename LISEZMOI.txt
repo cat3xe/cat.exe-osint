@@ -25,6 +25,14 @@ NOUVEAU EN v4
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
+NOUVEAU : STRUCTURE ET TESTS
+----------------------------
+- geo_core.py : tous les calculs purs (distances, soleil, coordonnées, ligne de vue, relèvement, DNS,
+  recoupement de profils, fiabilité IP et photo). Aucun réseau, aucun affichage.
+- osint_tool.py : interface, réseau et rapports. Il importe geo_core.py : garde les deux fichiers ensemble.
+- tests/ : 41 tests automatiques. Pour les lancer : python -m unittest discover -s tests
+  (les tests utilisent des réponses simulées, aucun site réel n'est interrogé).
+
 NOUVEAU : 6 OUTILS DE PRÉCISION
 ---------------------------------------
 - Même personne ? : compare les profils de un ou deux pseudos et cherche des preuves (lien d'un profil vers l'autre,
