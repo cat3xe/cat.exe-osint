@@ -10,13 +10,22 @@ Outil OSINT et GEOINT en ligne de commande (Python 3.14, Rich). Il regroupe des 
 ## Ce que fait le code, et vers où il envoie
 Chaque module interroge des services publics. Liste principale :
 - **E-mail** : vérification MX/SPF/DMARC, fuites (XposedOrNot), comptes (Holehe reproduit en interne, sur une liste de sites).
-- **IP / domaine** : ipwho.is, crt.sh, HackerTarget, CertSpotter, urlscan.io, web.archive.org.
+- **IP / domaine** : ipwho.is, ip-api.com, ipinfo.io, freeipapi.com, RIPEstat, crt.sh, HackerTarget, CertSpotter, urlscan.io, web.archive.org.
 - **Banque / véhicule / appareil** : openiban.com (IBAN), NHTSA vPIC (VIN), macvendors.com (MAC).
 - **Entreprises** : BODACC (OpenDataSoft).
 - **Anonymat** : passe par Tor (ports 9050/9150) si Tor est installé ; sinon le module le signale.
 
 Aucune donnée n'est envoyée à l'auteur. Les résultats sont enregistrés localement dans `OUT/`.
 Les clés API (Hunter, Windy) sont demandées à l'utilisateur et stockées sur sa machine uniquement.
+
+## Fiabilité des résultats
+Chaque résultat indique sa source et son niveau :
+- **A · vérifié à la source** : DNS lu en direct, GPS mesuré par l'appareil, pays d'une IP confirmé par toutes les bases.
+- **B · existe, lien à confirmer** : un compte existe bien sous ce pseudo ou cet email, mais rien ne prouve encore à qui il appartient.
+- **C · estimation** : position donnée par une IA, ville d'une IP, pseudo déduit d'un email.
+
+Les recherches de comptes (pseudo, email) passent un test de contrôle avec un identifiant inexistant : un site qui répond « trouvé » à tout est écarté.
+Les calculs géographiques (distance, azimut, soleil) sont exacts : ellipsoïde WGS84 et algorithme NOAA.
 
 ## Installation
 ```

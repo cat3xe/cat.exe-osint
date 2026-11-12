@@ -47,7 +47,7 @@ try:
 except ImportError:
     phonenumbers = None
 
-VERSION = "6.3"
+VERSION = "6.4"
 DISCORD = "https://discord.gg/RWYAPZ8Qbp"
 DINFO = {}
 
@@ -421,9 +421,113 @@ def open_file(path):
 
 
 def haversine(a, b, c, d):
+    """Distance rapide sur une sphère (km), erreur max ≈ 0,5 %. Pour une mesure exacte : geodesic()."""
     r = math.radians
     h = math.sin(r(c - a) / 2) ** 2 + math.cos(r(a)) * math.cos(r(c)) * math.sin(r(d - b) / 2) ** 2
-    return 2 * 6371 * math.asin(math.sqrt(h))
+    return 2 * 6371.0088 * math.asin(math.sqrt(min(1.0, h)))
+
+
+WGS_A, WGS_F = 6378137.0, 1 / 298.257223563
+WGS_B = WGS_A * (1 - WGS_F)
+
+
+def geodesic(lat1, lon1, lat2, lon2):
+    """Distance exacte sur l'ellipsoïde WGS84 (Vincenty, précision ≈ 1 mm).
+    Renvoie (km, azimut de départ °, azimut d'arrivée °)."""
+    if abs(lat1 - lat2) < 1e-12 and abs((lon1 - lon2 + 180) % 360 - 180) < 1e-12:
+        return 0.0, 0.0, 0.0
+    f, a, b = WGS_F, WGS_A, WGS_B
+    U1, U2 = math.atan((1 - f) * math.tan(math.radians(lat1))), math.atan((1 - f) * math.tan(math.radians(lat2)))
+    L = math.radians((lon2 - lon1 + 180) % 360 - 180)
+    sU1, cU1, sU2, cU2 = math.sin(U1), math.cos(U1), math.sin(U2), math.cos(U2)
+    lam = L
+    for _ in range(200):
+        sl, cl = math.sin(lam), math.cos(lam)
+        ss = math.hypot(cU2 * sl, cU1 * sU2 - sU1 * cU2 * cl)
+        if ss == 0:
+            return 0.0, 0.0, 0.0
+        cs = sU1 * sU2 + cU1 * cU2 * cl
+        sig = math.atan2(ss, cs)
+        sa = cU1 * cU2 * sl / ss
+        c2a = 1 - sa * sa
+        c2m = cs - 2 * sU1 * sU2 / c2a if c2a else 0.0
+        C = f / 16 * c2a * (4 + f * (4 - 3 * c2a))
+        new = L + (1 - C) * f * sa * (sig + C * ss * (c2m + C * cs * (-1 + 2 * c2m * c2m)))
+        if abs(new - lam) < 1e-12:
+            lam = new
+            break
+        lam = new
+    else:  # points presque aux antipodes : la série ne converge pas, on retombe sur la sphère
+        from_ = haversine(lat1, lon1, lat2, lon2)
+        return from_, _sph_bearing(lat1, lon1, lat2, lon2), (_sph_bearing(lat2, lon2, lat1, lon1) + 180) % 360
+    sl, cl = math.sin(lam), math.cos(lam)
+    u2 = c2a * (a * a - b * b) / (b * b)
+    A = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)))
+    B = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)))
+    ds = B * ss * (c2m + B / 4 * (cs * (-1 + 2 * c2m * c2m) - B / 6 * c2m * (-3 + 4 * ss * ss) * (-3 + 4 * c2m * c2m)))
+    dist = b * A * (sig - ds)
+    az1 = math.degrees(math.atan2(cU2 * sl, cU1 * sU2 - sU1 * cU2 * cl)) % 360
+    az2 = math.degrees(math.atan2(cU1 * sl, -sU1 * cU2 + cU1 * sU2 * cl)) % 360
+    return dist / 1000, az1, az2
+
+
+def _sph_bearing(a, b, c, d):
+    y = math.sin(math.radians(d - b)) * math.cos(math.radians(c))
+    x = math.cos(math.radians(a)) * math.sin(math.radians(c)) - math.sin(math.radians(a)) * math.cos(math.radians(c)) * math.cos(math.radians(d - b))
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+def geodesic_dest(lat, lon, brg, km):
+    """Point d'arrivée exact sur l'ellipsoïde WGS84 (Vincenty direct)."""
+    f, a, b = WGS_F, WGS_A, WGS_B
+    al, s_ = math.radians(brg), km * 1000
+    tU1 = (1 - f) * math.tan(math.radians(lat))
+    cU1 = 1 / math.sqrt(1 + tU1 * tU1)
+    sU1 = tU1 * cU1
+    sig1 = math.atan2(tU1, math.cos(al))
+    sa = cU1 * math.sin(al)
+    c2a = 1 - sa * sa
+    u2 = c2a * (a * a - b * b) / (b * b)
+    A = 1 + u2 / 16384 * (4096 + u2 * (-768 + u2 * (320 - 175 * u2)))
+    B = u2 / 1024 * (256 + u2 * (-128 + u2 * (74 - 47 * u2)))
+    sig = s_ / (b * A)
+    for _ in range(200):
+        c2m = math.cos(2 * sig1 + sig)
+        ss, cs = math.sin(sig), math.cos(sig)
+        ds = B * ss * (c2m + B / 4 * (cs * (-1 + 2 * c2m * c2m) - B / 6 * c2m * (-3 + 4 * ss * ss) * (-3 + 4 * c2m * c2m)))
+        new = s_ / (b * A) + ds
+        if abs(new - sig) < 1e-12:
+            sig = new
+            break
+        sig = new
+    c2m, ss, cs = math.cos(2 * sig1 + sig), math.sin(sig), math.cos(sig)
+    t = sU1 * ss - cU1 * cs * math.cos(al)
+    lat2 = math.atan2(sU1 * cs + cU1 * ss * math.cos(al), (1 - f) * math.hypot(sa, t))
+    lam = math.atan2(ss * math.sin(al), cU1 * cs - sU1 * ss * math.cos(al))
+    C = f / 16 * c2a * (4 + f * (4 - 3 * c2a))
+    L = lam - (1 - C) * f * sa * (sig + C * ss * (c2m + C * cs * (-1 + 2 * c2m * c2m)))
+    return math.degrees(lat2), (lon + math.degrees(L) + 540) % 360 - 180
+
+
+# ------------------------------------------------------------ FIABILITÉ (affichée partout : résultats, graphe, rapport)
+# A = lu directement à la source et recoupé · B = l'élément existe, son lien avec la cible reste à prouver · C = estimation / hypothèse
+FIAB = {"A": "vérifié à la source", "B": "existe · lien avec la cible à confirmer", "C": "estimation · à vérifier"}
+FIAB_COL = {"A": "#4caf7a", "B": "#7aa2ff", "C": "#e0a83a"}
+
+
+def fiab_tag(k, detail=""):
+    """Petit badge de fiabilité pour l'affichage terminal."""
+    return f"[{FIAB_COL[k]}]● {FIAB[k]}{' · ' + detail if detail else ''}[/]"
+
+
+def ctrl_name(n=12):
+    """Pseudo de contrôle qui n'existe nulle part : sert à repérer les sites qui répondent « trouvé » à tout."""
+    import secrets as _s
+    return "zq" + _s.token_hex(n // 2)
+
+
+def fmt_dist(m):
+    return f"{m:.0f} m" if m < 1000 else f"{m / 1000:.1f} km" if m < 20000 else f"{m / 1000:.0f} km"
 
 
 def parse_json(t):
@@ -754,9 +858,89 @@ NOMI = {"User-Agent": "CatExe-OSINT/2.1 (outil d'audit)"}
 
 def _dms(v):
     try:
-        return float(v[0]) + float(v[1]) / 60 + float(v[2]) / 3600
+        d, m, s_ = (float(x) for x in v)
+        if not (0 <= m < 60.0000001 and 0 <= s_ < 60.0000001) or any(math.isnan(x) for x in (d, m, s_)):
+            return None
+        return d + m / 60 + s_ / 3600
     except Exception:
         return None
+
+
+def _exif_gps(g):
+    """Lit le bloc GPS d'un EXIF. Renvoie (gps ou None, lignes d'info, direction, avertissements).
+    Rejette les positions impossibles ou vides au lieu de les afficher comme vraies."""
+    info, warn, direction = {}, [], None
+    if not g or 2 not in g or 4 not in g:
+        return None, info, None, warn
+    lat, lon = _dms(g[2]), _dms(g[4])
+    if lat is None or lon is None:
+        return None, info, None, ["bloc GPS présent mais illisible (valeurs corrompues)"]
+    ref_lat, ref_lon = str(g.get(1, "") or "").strip("\x00 ").upper(), str(g.get(3, "") or "").strip("\x00 ").upper()
+    if not ref_lat or not ref_lon:
+        warn.append("hémisphère (N/S ou E/O) absent du fichier : nord et est supposés, vérifie le lieu sur la carte")
+    lat = -lat if ref_lat.startswith("S") else lat
+    lon = -lon if ref_lon.startswith("W") else lon
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None, info, None, [f"position GPS impossible ({lat:.4f}, {lon:.4f}) : fichier modifié ou corrompu"]
+    if abs(lat) < 1e-7 and abs(lon) < 1e-7:
+        return None, info, None, ["GPS à 0, 0 : l'appareil n'avait pas de signal (position vide, ignorée)"]
+    if str(g.get(9, "") or "").strip("\x00 ").upper() == "V":
+        warn.append("l'appareil signale une mesure GPS non valide (statut V) : position peu sûre")
+    try:
+        if 6 in g:
+            alt = float(g[6])
+            ref = g.get(5, 0)
+            ref = ref[0] if isinstance(ref, (bytes, tuple)) and ref else ref
+            if int(ref or 0) == 1:
+                alt = -alt
+            if -500 <= alt <= 9000:
+                info["Altitude"] = f"{alt:.0f} m"
+    except Exception:
+        pass
+    acc = None
+    try:
+        if 31 in g and 0 < float(g[31]) < 100000:
+            acc = float(g[31])
+            info["Précision GPS"] = f"± {acc:.0f} m (mesurée par l'appareil)"
+        elif 11 in g and 0 < float(g[11]) < 100:
+            dop = float(g[11])
+            acc = dop * 5
+            info["Précision GPS"] = f"± {acc:.0f} m environ (DOP {dop:.1f} : {'très bon' if dop <= 2 else 'bon' if dop <= 5 else 'moyen' if dop <= 10 else 'mauvais'} signal)"
+    except Exception:
+        pass
+    if acc is None:
+        # sans mesure d'erreur dans le fichier, on déduit la finesse du nombre de décimales enregistrées
+        try:
+            sec = g[2][2]
+            den = getattr(sec, "denominator", 1) or 1
+            info["Précision GPS"] = "± 5 à 15 m en général (le fichier ne donne pas la marge d'erreur)" if den >= 100 or float(sec) != int(float(sec)) else \
+                "± 30 m au mieux (secondes entières : position arrondie)"
+        except Exception:
+            pass
+    elif acc > 100:
+        warn.append(f"signal GPS faible au moment de la photo (± {acc:.0f} m)")
+    try:
+        if 29 in g and 7 in g:
+            h, mi, se = (float(x) for x in g[7])
+            d = str(g[29]).strip("\x00 ").replace("-", ":")
+            info["Date GPS (UTC)"] = f"{d[8:10]}/{d[5:7]}/{d[:4]} {int(h):02d}:{int(mi):02d}:{int(se):02d} UTC"
+    except Exception:
+        pass
+    try:
+        if 17 in g:
+            direction = float(g[17]) % 360
+            if str(g.get(16, "T") or "T").strip("\x00 ").upper().startswith("M"):
+                info["Direction (référence)"] = "nord magnétique (boussole) : quelques degrés d'écart avec le nord de la carte"
+    except Exception:
+        pass
+    try:
+        if 12 in g and 13 in g and float(g[13]) > 0:
+            v = float(g[13]) * {"K": 1, "M": 1.609344, "N": 1.852}.get(str(g[12]).strip("\x00 ").upper(), 1)
+            if v > 3:
+                info["Vitesse"] = f"{v:.0f} km/h (photo prise en mouvement : position moins précise)"
+    except Exception:
+        pass
+    return (lat, lon), info, direction, warn
 
 
 def read_exif(path):
@@ -778,7 +962,11 @@ def read_exif(path):
     try:
         sub = ex.get_ifd(0x8769)
         if sub.get(36867):
-            info["Prise le"] = str(sub.get(36867))
+            info["Prise le"] = str(sub.get(36867)) + (f" (UTC{sub.get(36881)})" if sub.get(36881) else " (heure de l'appareil, fuseau non enregistré)")
+        if sub.get(36868) and sub.get(36867) and str(sub.get(36868)) != str(sub.get(36867)):
+            info["Numérisée le"] = str(sub.get(36868))
+        if ex.get(306) and sub.get(36867) and str(ex.get(306)) != str(sub.get(36867)):
+            info["Modifiée le"] = f"{ex.get(306)} (différent de la prise de vue : fichier retouché ou ré-enregistré)"
         if sub.get(42036):
             info["Objectif"] = str(sub.get(42036))
         uc = sub.get(0x9286)
@@ -792,17 +980,13 @@ def read_exif(path):
     except Exception:
         pass
     try:
-        g = ex.get_ifd(0x8825)
-        if g and 2 in g and 4 in g:
-            lat, lon = _dms(g[2]), _dms(g[4])
-            if lat is not None and lon is not None:
-                lat = -lat if str(g.get(1, "N")).upper().startswith("S") else lat
-                lon = -lon if str(g.get(3, "E")).upper().startswith("W") else lon
-                gps = (lat, lon)
-                if 6 in g:
-                    info["Altitude"] = f"{float(g[6]):.0f} m"
-                if 17 in g:
-                    cam["dir"] = float(g[17]) % 360
+        gps, ginfo, gdir_, gwarn = _exif_gps(ex.get_ifd(0x8825))
+        info.update(ginfo)
+        if gdir_ is not None:
+            cam["dir"] = gdir_
+        if gwarn:
+            info["⚠ GPS"] = " · ".join(gwarn)
+            cam["gps_warn"] = gwarn
     except Exception:
         pass
     img = ImageOps.exif_transpose(raw)
@@ -845,15 +1029,51 @@ def place_name(lat, lon, zoom=14):
         return ""
 
 
-def geocode(q, near=None):
-    params = {"format": "jsonv2", "limit": 1, "q": q, "accept-language": "fr"}
+GEO_PREC = {"house": 15, "building": 20, "amenity": 30, "shop": 30, "tourism": 40, "historic": 40, "leisure": 80, "highway": 150, "railway": 100,
+            "aeroway": 800, "natural": 500, "waterway": 500}
+
+
+def geocode_full(q, near=None, limit=5):
+    """Géocode une adresse / un lieu. Renvoie une liste de candidats classés :
+    {lat, lon, name, kind, prec_m (rayon d'incertitude), score}. Liste vide si rien."""
+    params = {"format": "jsonv2", "limit": limit, "q": q, "accept-language": "fr", "addressdetails": 0}
     if near:
         params["viewbox"] = f"{near[1] - .4},{near[0] + .4},{near[1] + .4},{near[0] - .4}"
     try:
         j = get_json("https://nominatim.openstreetmap.org/search", 10, headers=NOMI, params=params)
-        return (float(j[0]["lat"]), float(j[0]["lon"])) if j else None
     except Exception:
+        return []
+    out = []
+    for x in j or []:
+        try:
+            la, lo = float(x["lat"]), float(x["lon"])
+            bb = [float(v) for v in x.get("boundingbox") or []]
+            prec = haversine(bb[0], bb[2], bb[1], bb[3]) * 500 if len(bb) == 4 else 5000
+            cat, typ = x.get("category") or x.get("class") or "", x.get("type") or ""
+            floor = GEO_PREC.get(typ) or GEO_PREC.get(cat) or 10
+            out.append({"lat": la, "lon": lo, "name": x.get("display_name", ""), "kind": f"{cat}/{typ}".strip("/"),
+                        "prec_m": max(prec, floor), "score": float(x.get("importance") or 0)})
+        except Exception:
+            continue
+    return out
+
+
+def geocode(q, near=None):
+    r = geocode_full(q, near, 1)
+    return (r[0]["lat"], r[0]["lon"]) if r else None
+
+
+def geocode_explain(q, near=None):
+    """Comme geocode(), mais dit quel lieu a été retenu, avec sa marge d'erreur, et prévient si le nom est ambigu."""
+    r = geocode_full(q, near, 5)
+    if not r:
         return None
+    best = r[0]
+    con.print(f"[{M}]Lieu retenu :[/] {escape(best['name'][:110])}  [{M}]· repère ± {fmt_dist(best['prec_m'])}")
+    others = [x for x in r[1:] if haversine(best["lat"], best["lon"], x["lat"], x["lon"]) > 30 and x["score"] >= best["score"] * 0.75]
+    if others:
+        con.print(f"[{Y}]⚠ Nom ambigu : {len(others)} autre(s) lieu(x) du même nom, par ex. « {escape(others[0]['name'][:80])} ». Précise la ville ou le pays si ce n'est pas le bon.")
+    return best["lat"], best["lon"]
 
 
 # --- IA locale sans clé : GeoCLIP (prédit la position GPS d'où la photo a été prise)
@@ -1178,10 +1398,12 @@ SITES = [
 ]
 
 
-def check_site(site, u):
+_CTRL, _CTRL_NAME = {}, ctrl_name()
+
+
+def _site_probe(site, u):
+    """Une requête sur un site. Renvoie (verdict 1 / 0 / None, code HTTP ou None)."""
     name, cat, url, api, fn, hdr = site
-    if fn is None:
-        return "manuel", None
     target = (api or url).replace("{u}", u)
     for essai in range(2):
         try:
@@ -1190,12 +1412,42 @@ def check_site(site, u):
                 time.sleep(2)
                 continue
             v = fn(r.status_code, r.text[:400000], u)
-            if v not in (0, 1) and r.status_code in (401, 403, 429, 503):
-                return "injoignable", r.status_code
-            return ("trouvé" if v == 1 else "absent" if v == 0 else "à vérifier"), r.status_code
+            if v == 1 and not api and r.history:
+                # redirigé ailleurs (accueil, connexion, recherche) : la page affichée n'est pas celle du profil
+                end = requests.utils.urlparse(r.url)
+                if u.lower() not in requests.utils.unquote(end.path + "?" + end.query).lower():
+                    v = None
+            return v, r.status_code
         except requests.RequestException:
             time.sleep(1)
-    return "injoignable", None
+    return None, None
+
+
+def site_control(site):
+    """Teste le site avec un pseudo qui n'existe pas. Si le site répond aussi « trouvé », ses réponses ne valent rien."""
+    k = site[0]
+    if k not in _CTRL:
+        _CTRL[k] = _site_probe(site, _CTRL_NAME)[0]
+    return _CTRL[k]
+
+
+def check_site(site, u):
+    """Statuts : trouvé (confirmé par un test de contrôle) · à vérifier · absent · injoignable · manuel."""
+    if site[4] is None:
+        return "manuel", None
+    v, code = _site_probe(site, u)
+    if code is None:
+        return "injoignable", None
+    if v not in (0, 1) and code in (401, 403, 429, 503):
+        return "injoignable", code
+    if v == 1:
+        c = site_control(site)
+        if c == 1:
+            return "à vérifier", "le site répond « trouvé » même pour un pseudo inexistant"
+        if c is None:
+            return "à vérifier", "test de contrôle impossible"
+        return "trouvé", code
+    return ("absent" if v == 0 else "à vérifier"), code
 
 
 def variants(u):
@@ -1236,6 +1488,8 @@ def mod_user():
     con.print(t)
     cnt = {k: sum(1 for x in res if x[2] == k) for k in order}
     con.print(f"[{G}]{cnt['trouvé']} trouvés[/] · [{Y}]{cnt['à vérifier'] + cnt['manuel']} à vérifier[/] · [{M}]{cnt['absent']} absents")
+    con.print(f"[{M}]« trouvé » = le site a répondu oui pour ce pseudo ET non pour un pseudo de contrôle inexistant (pas de faux positif). "
+              "Ça prouve que le compte existe, pas qu'il appartient à la même personne : recoupe photo, bio, liens.")
     inj = sorted({s[0] for s, n, st, _ in res if st == "injoignable"})
     if inj:
         con.print(f"[{M}]{len(inj)} site(s) n'ont pas répondu (site lent, anti-robot ou bloqué par ton réseau / VPN), à vérifier à la main si besoin : {escape(', '.join(inj))}")
@@ -1278,13 +1532,114 @@ def dns(name, typ):
     return out
 
 
+def _ipsrc_who(ip):
+    g = get_json(f"https://ipwho.is/{ip}", 10)
+    if g.get("success") is False:
+        return None
+    c = g.get("connection") or {}
+    return {"cc": g.get("country_code"), "country": g.get("country"), "region": g.get("region"), "city": g.get("city"), "lat": g.get("latitude"), "lon": g.get("longitude"),
+            "isp": c.get("isp") or c.get("org"), "org": c.get("org"), "asn": c.get("asn"), "tz": (g.get("timezone") or {}).get("id"), "postal": g.get("postal"), "domain": c.get("domain")}
+
+
+def _ipsrc_api(ip):
+    g = get_json(f"http://ip-api.com/json/{ip}?fields=66846719", 10)
+    if g.get("status") != "success":
+        return None
+    m = re.match(r"AS(\d+)", g.get("as") or "")
+    return {"cc": g.get("countryCode"), "country": g.get("country"), "region": g.get("regionName"), "city": g.get("city"), "lat": g.get("lat"), "lon": g.get("lon"),
+            "isp": g.get("isp"), "org": g.get("org"), "asn": int(m.group(1)) if m else None, "tz": g.get("timezone"), "postal": g.get("zip"),
+            "proxy": g.get("proxy"), "hosting": g.get("hosting"), "mobile": g.get("mobile"), "reverse": g.get("reverse")}
+
+
+def _ipsrc_info(ip):
+    g = get_json(f"https://ipinfo.io/{ip}/json", 10)
+    if not g.get("loc"):
+        return None
+    la, lo = g["loc"].split(",")
+    m = re.match(r"AS(\d+)\s*(.*)", g.get("org") or "")
+    return {"cc": g.get("country"), "region": g.get("region"), "city": g.get("city"), "lat": float(la), "lon": float(lo),
+            "isp": m.group(2) if m else g.get("org"), "asn": int(m.group(1)) if m else None, "tz": g.get("timezone"), "postal": g.get("postal")}
+
+
+def _ipsrc_free(ip):
+    try:
+        g = get_json(f"https://free.freeipapi.com/api/json/{ip}", 8)
+    except Exception:
+        g = get_json(f"https://freeipapi.com/api/json/{ip}", 8)
+    if not g.get("countryCode") or g.get("countryCode") == "-":
+        return None
+    return {"cc": g.get("countryCode"), "country": g.get("countryName"), "region": g.get("regionName"), "city": g.get("cityName"),
+            "lat": g.get("latitude"), "lon": g.get("longitude"), "postal": g.get("zipCode")}
+
+
+IP_SOURCES = [("ipwho.is", _ipsrc_who), ("ip-api.com", _ipsrc_api), ("ipinfo.io", _ipsrc_info), ("freeipapi.com", _ipsrc_free)]
+
+
+def _norm_city(c):
+    import unicodedata
+    c = "".join(ch for ch in unicodedata.normalize("NFD", str(c or "")) if unicodedata.category(ch) != "Mn").lower()
+    return re.sub(r"[^a-z]", "", c)
+
+
+def ip_consensus(src):
+    """src : {nom: données}. Recoupe les sources et dit ce qui est sûr (pays) et ce qui ne l'est pas (ville, point)."""
+    ok = {k: v for k, v in src.items() if v and v.get("cc")}
+    out = {"n": len(ok), "sources": ok, "cc": None, "country": None, "city": None, "lat": None, "lon": None, "spread_km": None,
+           "cc_agree": 0, "city_agree": 0, "radius_km": None, "level": "C", "resume": "aucune source de géolocalisation n'a répondu"}
+    if not ok:
+        return out
+    from collections import Counter
+    cc, n_cc = Counter(str(v["cc"]).upper() for v in ok.values()).most_common(1)[0]
+    same = {k: v for k, v in ok.items() if str(v["cc"]).upper() == cc}
+    out.update(cc=cc, cc_agree=n_cc, country=next((v.get("country") for v in same.values() if v.get("country")), cc))
+    cities = Counter(_norm_city(v.get("city")) for v in same.values() if v.get("city"))
+    if cities:
+        ck, n_city = cities.most_common(1)[0]
+        out.update(city=next(v["city"] for v in same.values() if _norm_city(v.get("city")) == ck), city_agree=n_city)
+    has_pt = lambda v: v.get("lat") is not None and v.get("lon") is not None
+    pts = [(float(v["lat"]), float(v["lon"])) for v in same.values() if has_pt(v)]
+    all_spread = max((haversine(a[0], a[1], b[0], b[1]) for a in pts for b in pts), default=0)
+    if out["city_agree"] >= 2 and out["city_agree"] > len(same) / 2:
+        # une majorité de sources donne la même ville : on mesure la zone sur elles, la source isolée est signalée à part
+        pts = [(float(v["lat"]), float(v["lon"])) for v in same.values() if has_pt(v) and _norm_city(v.get("city")) == ck] or pts
+    if pts:
+        # point médian = celui qui minimise la distance aux autres (robuste à une source aberrante)
+        best = min(pts, key=lambda p: sum(haversine(p[0], p[1], q[0], q[1]) for q in pts))
+        spread = max((haversine(a[0], a[1], b[0], b[1]) for a in pts for b in pts), default=0)
+        out.update(lat=best[0], lon=best[1], spread_km=spread, radius_km=max(25.0, spread))
+    pays_sur = n_cc >= 2 and n_cc == len(ok)
+    ville_sure = out["city_agree"] >= 2 and out["city_agree"] > len(same) / 2 and (out["spread_km"] or 0) <= 60
+    out["level"] = "A" if pays_sur else "C"
+    out["pays_txt"] = (f"{n_cc}/{len(ok)} sources d'accord" if len(ok) > 1 else "1 seule source a répondu : non recoupé")
+    out["ville_txt"] = ("—" if not out["city"] else f"{out['city_agree']}/{len(same)} sources d'accord"
+                        + (f", écart max {all_spread:.0f} km entre toutes les sources" if len(same) > 1 and all_spread >= 1 else ""))
+    out["ville_sure"] = ville_sure
+    out["resume"] = (f"pays {'sûr' if pays_sur else 'à confirmer'} ({out['pays_txt']}) · ville {'probable' if ville_sure else 'incertaine'} ({out['ville_txt']})")
+    return out
+
+
+def ip_geo(ip):
+    """Interroge 4 bases de géolocalisation en parallèle et renvoie leur recoupement (voir ip_consensus)."""
+    with cf.ThreadPoolExecutor(4) as ex:
+        res = list(ex.map(lambda x: _safe_call(x[1], ip), IP_SOURCES))
+    return ip_consensus({n: r for (n, _), r in zip(IP_SOURCES, res)})
+
+
+def _safe_call(fn, *a):
+    try:
+        return fn(*a)
+    except Exception:
+        return None
+
+
 def ip_info(ip):
     v = {}
     try:
-        g = get_json(f"https://ipwho.is/{ip}", 10)
-        if g.get("success") is not False:
-            c = g.get("connection") or {}
-            v["geo"] = {"country": g.get("country"), "city": g.get("city"), "org": c.get("org") or c.get("isp"), "asn": c.get("asn")}
+        c = ip_geo(ip)
+        if c["n"]:
+            first = lambda k: next((x.get(k) for x in c["sources"].values() if x.get(k)), None)
+            v["geo"] = {"country": c["country"], "city": c["city"] if c.get("ville_sure") else (f"{c['city']} (incertain)" if c["city"] else None),
+                        "org": first("org") or first("isp"), "asn": first("asn"), "fiab": c["resume"]}
     except Exception:
         pass
     try:
@@ -2401,20 +2756,61 @@ def to_utm(lat, lon):
     return f"{zone}{band} {x:.0f}E {y:.0f}N"
 
 
-def parse_coords(s):
-    """Accepte « 48.858, 2.294 », du DMS (48°51'30"N 2°17'40"E) ou une adresse / un nom de lieu."""
-    s = s.strip()
-    m = re.fullmatch(r"(-?\d{1,3}\.\d+)\s*[,; ]\s*(-?\d{1,3}\.\d+)", s)
+_NUM = r"(\d+(?:[.,]\d+)?)"
+_HEMI_SUF = re.compile(_NUM + r"\s*°?\s*(?:" + _NUM + r"\s*['’′]\s*)?(?:" + _NUM + r"\s*(?:\"|”|″|'')\s*)?\s*([NSEWO])(?![A-Za-z])", re.I)
+_HEMI_PRE = re.compile(r"(?<![A-Za-z])([NSEWO])\s*" + _NUM + r"\s*°?\s*(?:" + _NUM + r"\s*['’′]\s*)?(?:" + _NUM + r"\s*(?:\"|”|″|''))?", re.I)
+
+
+def coords_valid(lat, lon):
+    return -90 <= lat <= 90 and -180 <= lon <= 180
+
+
+def coords_only(s):
+    """Lit des coordonnées écrites (décimal, DMS, avec ou sans N/S/E/O, dans n'importe quel ordre).
+    Renvoie (lat, lon), None si ce n'est pas des coordonnées, ou False si elles sont impossibles."""
+    s = (s or "").strip().replace("，", ",")
+    if not s:
+        return None
+    f = lambda x: float((x or "0").replace(",", "."))
+    if re.fullmatch(r"[\d\s°'’′\"”″.,;:/NSEWOnsewo+-]+", s) and re.search(r"[NSEWO]", s, re.I):
+        parts = [(d, mi, se, h) for d, mi, se, h in _HEMI_SUF.findall(s)]
+        if len(parts) != 2:
+            parts = [(d, mi, se, h) for h, d, mi, se in _HEMI_PRE.findall(s)]
+        if len(parts) == 2:
+            lat = lon = None
+            for d, mi, se, h in parts:
+                if f(mi) >= 60 or f(se) >= 60:
+                    return False
+                v = f(d) + f(mi) / 60 + f(se) / 3600
+                if h.upper() in "NS":
+                    lat = -v if h.upper() == "S" else v
+                else:
+                    lon = -v if h.upper() in "WO" else v
+            if lat is None or lon is None:
+                return False
+            return (lat, lon) if coords_valid(lat, lon) else False
+    m = re.fullmatch(r"([+-]?\d{1,3}(?:\.\d+)?)\s*[,;]\s*([+-]?\d{1,3}(?:\.\d+)?)", s) or \
+        re.fullmatch(r"([+-]?\d{1,3}\.\d+)\s+([+-]?\d{1,3}\.\d+)", s) or \
+        re.fullmatch(r"([+-]?\d{1,3},\d+)\s*[; ]\s*([+-]?\d{1,3},\d+)", s)
     if m:
-        return float(m[1]), float(m[2])
-    parts = re.findall(r"(\d+(?:[.,]\d+)?)\s*°\s*(?:(\d+(?:[.,]\d+)?)\s*['’′]\s*)?(?:(\d+(?:[.,]\d+)?)\s*[\"”″]\s*)?([NSEWO])", s, re.I)
-    if len(parts) == 2:
-        vals = []
-        for d, mi, se, h in parts:
-            v = float(d.replace(",", ".")) + float((mi or "0").replace(",", ".")) / 60 + float((se or "0").replace(",", ".")) / 3600
-            vals.append(-v if h.upper() in "SWO" else v)
-        return vals[0], vals[1]
-    return geocode(s)
+        lat, lon = f(m[1]), f(m[2])
+        return (lat, lon) if coords_valid(lat, lon) else False
+    return None
+
+
+def parse_coords(s, quiet=False):
+    """Accepte « 48.858, 2.294 », du DMS (48°51'30"N 2°17'40"E, dans n'importe quel ordre) ou une adresse / un nom de lieu."""
+    s = (s or "").strip()
+    c = coords_only(s)
+    if c is False:
+        if not quiet:
+            con.print(f"[{Y}]Coordonnées impossibles (latitude entre −90 et 90, longitude entre −180 et 180). Latitude et longitude inversées ?")
+        return None
+    if c:
+        return c
+    if not s:
+        return None
+    return geocode(s) if quiet else geocode_explain(s)
 
 
 def map_links(lat, lon, h=0):
@@ -2446,20 +2842,45 @@ def overpass(q, timeout=120):
 
 
 # ============================================================ SOLEIL & OMBRES
-def sun_pos(dt, lat, lon):
-    """dt en UTC (naïf). Renvoie (azimut ° depuis le nord, élévation °). Algorithme NOAA."""
-    doy = dt.timetuple().tm_yday
-    hr = dt.hour + dt.minute / 60 + dt.second / 3600
-    g = 2 * math.pi / 365 * (doy - 1 + (hr - 12) / 24)
-    eq = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g) - 0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
-    de = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g) + 0.000907 * math.sin(2 * g)
-          - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g))
-    ha = math.radians((hr * 60 + eq + 4 * lon) / 4 - 180)
-    p = math.radians(lat)
+def sun_pos(dt, lat, lon, refraction=True):
+    """dt en UTC (naïf). Renvoie (azimut ° depuis le nord, hauteur °).
+    Algorithme NOAA complet (Meeus) : écart < 0,01° sur la position du soleil entre 1900 et 2100.
+    refraction=True : hauteur APPARENTE (celle qu'on voit et que les ombres suivent), corrigée de l'atmosphère."""
+    jd = (dt - datetime.datetime(2000, 1, 1, 12)).total_seconds() / 86400 + 2451545.0
+    T = (jd - 2451545.0) / 36525
+    r, d = math.radians, math.degrees
+    L0 = (280.46646 + T * (36000.76983 + T * 0.0003032)) % 360
+    Mn = 357.52911 + T * (35999.05029 - 0.0001537 * T)
+    e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T)
+    C = math.sin(r(Mn)) * (1.914602 - T * (0.004817 + 0.000014 * T)) + math.sin(r(2 * Mn)) * (0.019993 - 0.000101 * T) + math.sin(r(3 * Mn)) * 0.000289
+    om = 125.04 - 1934.136 * T
+    lam = L0 + C - 0.00569 - 0.00478 * math.sin(r(om))
+    eps = 23 + (26 + (21.448 - T * (46.815 + T * (0.00059 - T * 0.001813))) / 60) / 60 + 0.00256 * math.cos(r(om))
+    de = math.asin(math.sin(r(eps)) * math.sin(r(lam)))
+    y = math.tan(r(eps / 2)) ** 2
+    eq = 4 * d(y * math.sin(2 * r(L0)) - 2 * e * math.sin(r(Mn)) + 4 * e * y * math.sin(r(Mn)) * math.cos(2 * r(L0))
+               - 0.5 * y * y * math.sin(4 * r(L0)) - 1.25 * e * e * math.sin(2 * r(Mn)))
+    mins = dt.hour * 60 + dt.minute + dt.second / 60 + dt.microsecond / 6e7
+    ha = r(((mins + eq + 4 * lon) % 1440) / 4 - 180)
+    p = r(lat)
     cz = math.sin(p) * math.sin(de) + math.cos(p) * math.cos(de) * math.cos(ha)
-    el = 90 - math.degrees(math.acos(max(-1, min(1, cz))))
-    az = (math.degrees(math.atan2(math.sin(ha), math.cos(ha) * math.sin(p) - math.tan(de) * math.cos(p))) + 180) % 360
+    el = 90 - d(math.acos(max(-1, min(1, cz))))
+    az = (d(math.atan2(math.sin(ha), math.cos(ha) * math.sin(p) - math.tan(de) * math.cos(p))) + 180) % 360
+    if refraction:
+        if el > 85:
+            rf = 0
+        elif el > 5:
+            t = math.tan(r(el))
+            rf = 58.1 / t - 0.07 / t ** 3 + 0.000086 / t ** 5
+        elif el > -0.575:
+            rf = 1735 + el * (-518.2 + el * (103.4 + el * (-12.79 + el * 0.711)))
+        else:
+            rf = -20.772 / math.tan(r(el))
+        el += rf / 3600
     return az, el
+
+
+SUN_RISE = -0.267  # hauteur apparente du centre du soleil quand son bord supérieur touche l'horizon (lever / coucher officiels)
 
 
 def get_tz(name):
@@ -2527,7 +2948,7 @@ def mod_sun():
         tz = get_tz(Prompt.ask(f"[{G}]Fuseau horaire", default="Europe/Paris"))
         day = [(datetime.datetime.combine(d, datetime.time()) + datetime.timedelta(minutes=m)).replace(tzinfo=tz) for m in range(0, 1440)]
         pos = [(t, *sun_pos(t.astimezone(datetime.timezone.utc).replace(tzinfo=None), lat, lon)) for t in day]
-        up = [p for p in pos if p[2] > 0]
+        up = [p for p in pos if p[2] > SUN_RISE]
         if mode == "3":
             t = Table(title=f"Soleil le {d:%d/%m/%Y} · {lat:.4f}, {lon:.4f}", box=box.ROUNDED, border_style="#2b3158")
             for c in ("Heure", "Azimut", "Hauteur", "Ombre (× hauteur objet)", "Ombre vers"):
@@ -2538,13 +2959,17 @@ def mod_sun():
             con.print(t)
             if up:
                 noon = max(up, key=lambda p: p[2])
-                con.print(f"[{G}]Lever {up[0][0]:%H:%M} · midi solaire {noon[0]:%H:%M} ({noon[2]:.1f}°) · coucher {up[-1][0]:%H:%M}")
+                polar = len(up) == len(pos)
+                con.print(f"[{G}]" + ("Soleil visible toute la journée (jour polaire)" if polar else f"Lever {up[0][0]:%H:%M} · coucher {up[-1][0]:%H:%M}") + f" · midi solaire {noon[0]:%H:%M} ({noon[2]:.1f}°)")
+                con.print(f"[{M}]Calcul astronomique exact (NOAA, réfraction incluse) : ± 1 min sur un horizon plat. Relief ou immeubles = lever plus tard, coucher plus tôt.")
+            else:
+                con.print(f"[{Y}]Le soleil ne se lève pas ce jour-là à cet endroit (nuit polaire).")
                 add_report("Soleil", f"{lat:.4f},{lon:.4f} {d:%d/%m/%Y}", f"Lever {up[0][0]:%H:%M}, midi {noon[0]:%H:%M}, coucher {up[-1][0]:%H:%M}")
             con.print(f"[{B}]https://www.suncalc.org/#/{lat},{lon},17/{d:%Y.%m.%d}/12:00/1/3")
             return pause()
         el = ask_elevation()
         sd = ask_sun_dir()
-        ok = [p for p in up if abs(p[2] - el) <= 1.0 and (sd is None or angdiff(p[1], sd) <= 20)]
+        ok = [p for p in pos if p[2] > 0 and abs(p[2] - el) <= 1.0 and (sd is None or angdiff(p[1], sd) <= 20)]
         if not ok:
             con.print(f"[{Y}]Aucune heure ne colle ce jour-là à cet endroit (vérifie la mesure, la date ou le lieu).")
             return pause()
@@ -2565,6 +2990,8 @@ def mod_sun():
             t.add_row(f"[{G}]{w[0][0]:%H:%M} → {w[-1][0]:%H:%M}", f"{mid[1]:.0f}° ({cardinal(mid[1])})", cardinal((mid[1] + 180) % 360))
             lines.append(f"{w[0][0]:%H:%M}-{w[-1][0]:%H:%M}")
         con.print(t)
+        con.print(f"[{M}]Le créneau correspond à une mesure d'ombre juste à ± 1°. Une ombre mesurée sur un sol en pente ou une photo prise de biais élargit la marge : "
+                  "refais la mesure sur un 2ᵉ objet pour confirmer.")
         if sd is None and len(wins) > 1:
             con.print(f"[{M}]Deux créneaux (matin / après-midi) : indique la direction de l'ombre pour trancher.")
         add_report("Soleil", f"Heure photo {lat:.4f},{lon:.4f} {d:%d/%m/%Y}", f"Soleil à {el:.1f}° → créneaux : " + ", ".join(lines))
@@ -3934,21 +4361,13 @@ def mod_geo(path=None):
 
 # ============================================================ OUTILS POSITION / DATE
 def parse_pos(s):
-    s = s.strip()
-    m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", s) or re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", s) or re.search(r"[?&](?:q|ll|query)=(-?\d+\.\d+),\s*(-?\d+\.\d+)", s)
+    s = (s or "").strip()
+    m = re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", s) or re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", s) or \
+        re.search(r"[?&](?:q|ll|query|center|destination|daddr|saddr|sll|cp|mlat)=(?:loc:)?(-?\d+\.\d+)(?:,|%2C|~|&mlon=)\s*(-?\d+\.\d+)", s)
     if m:
-        return float(m.group(1)), float(m.group(2))
-    m = re.fullmatch(r"\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*", s)
-    if m:
-        return float(m.group(1)), float(m.group(2))
-    d = re.findall(r"(\d+(?:\.\d+)?)\s*°\s*(?:(\d+(?:\.\d+)?)\s*['′]\s*)?(?:(\d+(?:\.\d+)?)\s*[\"″]\s*)?\s*([NSEWO])", s, re.I)
-    if len(d) == 2:
-        v = []
-        for deg, mi, se, h in d:
-            x = float(deg) + float(mi or 0) / 60 + float(se or 0) / 3600
-            v.append(-x if h.upper() in "SWO" else x)
-        return v[0], v[1]
-    return geocode(s) if s else None
+        p = float(m.group(1)), float(m.group(2))
+        return p if coords_valid(*p) else None
+    return parse_coords(s)
 
 
 def ask_pos(label="Lieu"):
@@ -4745,10 +5164,12 @@ def mod_bearing():
             a, b = ask_pos("Point A"), ask_pos("Point B")
             if not (a and b):
                 continue
-            km = haversine(*a, *b)
-            br = bearing(*a, *b)
-            con.print(Panel(f"[{M}]Distance[/] [{G}]{km:,.3f} km[/]".replace(",", " ") + f"   [{M}]Direction A→B[/] [{G}]{br:.1f}° ({cardinal(br)})[/]   "
-                            f"[{M}]B→A[/] {bearing(*b, *a):.1f}° ({cardinal(bearing(*b, *a))})\n[{M}]Milieu[/] {(a[0] + b[0]) / 2:.5f}, {(a[1] + b[1]) / 2:.5f}", border_style="#00e5ff"))
+            km, br, br_end = geodesic(*a, *b)
+            back = (br_end + 180) % 360
+            mid = geodesic_dest(*a, br, km / 2) if km else a
+            con.print(Panel(f"[{M}]Distance[/] [{G}]{km:,.3f} km[/]".replace(",", " ") + f"   [{M}]Direction A→B[/] [{G}]{br:.2f}° ({cardinal(br)})[/]   "
+                            f"[{M}]B→A[/] {back:.2f}° ({cardinal(back)})\n[{M}]Milieu[/] {mid[0]:.5f}, {mid[1]:.5f}\n"
+                            f"[{M}]Calcul exact sur l'ellipsoïde WGS84 (celui du GPS) : précision au mètre. La seule erreur possible vient des deux points saisis.", border_style="#00e5ff"))
             add_report("Distance", f"{a} → {b}", f"{km:.3f} km · azimut {br:.1f}°")
             if ask_yes("Voir sur la carte ?"):
                 save_open("distance", quick_map(f"Distance {km:.2f} km · {br:.0f}°", [{"lat": a[0], "lon": a[1], "label": "A", "c": "#00e5ff"}, {"lat": b[0], "lon": b[1], "label": "B"}], lines=[[list(a), list(b)]]))
@@ -4758,7 +5179,7 @@ def mod_bearing():
                 continue
             br = ask_num(f"[{G}]Direction en degrés (0 = nord, 90 = est…)", "0")
             km = ask_num(f"[{G}]Distance en km", "1")
-            b = destination(*a, br, km)
+            b = geodesic_dest(*a, br % 360, km)
             con.print(Panel(f"[{G}]{b[0]:.6f}, {b[1]:.6f}[/]  [{M}]{escape(place_name(*b) or '')}", border_style="#00e5ff"))
             LAST["pos"] = b
             if ask_yes("Voir sur la carte ?"):
@@ -5162,6 +5583,7 @@ def mod_net():
                     pre = get_json("https://stat.ripe.net/data/prefix-overview/data.json", 15, params={"resource": ip}).get("data", {})
                     ab = get_json("https://stat.ripe.net/data/abuse-contact-finder/data.json", 15, params={"resource": ip}).get("data", {})
                     ptr = dns(".".join(reversed(ip.split("."))) + ".in-addr.arpa", "PTR") if "." in ip else []
+                    ipi = ip_info(ip)
                 cn = g.get("connection") or {}
                 asn = (pre.get("asns") or [{}])[0]
                 t = Table(box=box.ROUNDED, border_style="#2b3158", show_header=False, title=f"IP {ip}")
@@ -5169,13 +5591,14 @@ def mod_net():
                              ("Opérateur", cn.get("isp") or cn.get("org")), ("ASN", f"AS{asn.get('asn', cn.get('asn'))} · {asn.get('holder', '')}"),
                              ("Plage d'adresses", pre.get("resource")), ("Nom inverse (PTR)", ", ".join(ptr) if ptr else "—"),
                              ("Contact abus", ", ".join(ab.get("abuse_contacts") or []) or "—"), ("Fuseau", (g.get("timezone") or {}).get("id")),
-                             ("Position approx.", f"{g.get('latitude')}, {g.get('longitude')} (ville, pas l'adresse)")):
+                             ("Position approx.", f"{g.get('latitude')}, {g.get('longitude')} (ville, pas l'adresse)"),
+                             ("Recoupement", (ipi.get("geo") or {}).get("fiab"))):
                     t.add_row(f"[{G}]{k}", escape(str(v or "—")))
                 con.print(t)
                 if c == "me":
                     con.print(f"[{M}]C'est ce que n'importe quel site voit quand tu le visites. Avec un VPN, l'opérateur affiché doit être celui du VPN.")
                 add_report("Réseau", ip, f"{g.get('city')}, {g.get('country')} · {cn.get('isp')} · AS{asn.get('asn')} · {pre.get('resource')}")
-                sh = ip_info(ip).get("sh") or {}
+                sh = ipi.get("sh") or {}
                 if sh.get("ports"):
                     con.print(f"[{Y}]Ports ouverts vus par Shodan : {', '.join(map(str, sh['ports']))}" + (f" · failles : {', '.join(sh.get('vulns', [])[:8])}" if sh.get("vulns") else ""))
             elif c == "asn":
@@ -6656,10 +7079,14 @@ def mod_img2gps():
     found = []
     if gps:
         lat, lon = gps[0], gps[1]
-        con.print(Panel("[bold #00e5ff]GPS trouvé dans le fichier[/] : position exacte de l'appareil", border_style=G))
-        con.print(coords_panel(lat, lon, "📌 Position exacte (EXIF)"))
-        found.append({"lat": lat, "lon": lon, "label": "<b>GPS EXIF</b><br>position exacte", "c": "#00e5ff", "s": 9})
-        add_report("Image → coordonnées", f.name, f"GPS EXIF : {lat:.6f}, {lon:.6f}")
+        prec = info.get("Précision GPS", "± 5 à 15 m en général")
+        con.print(Panel(f"[bold #00e5ff]GPS trouvé dans le fichier[/] : position mesurée par l'appareil · {escape(prec)}"
+                        + (f"\n[{Y}]⚠ {escape(info['⚠ GPS'])}" if info.get("⚠ GPS") else "")
+                        + (f"\n[{M}]Date GPS : {escape(info['Date GPS (UTC)'])}" if info.get("Date GPS (UTC)") else "")
+                        + f"\n[{M}]Un EXIF peut être modifié à la main : si l'image compte, confirme avec Street View ou la vue satellite.", border_style=G))
+        con.print(coords_panel(lat, lon, "📌 Position GPS (EXIF)"))
+        found.append({"lat": lat, "lon": lon, "label": f"<b>GPS EXIF</b><br>{escape_html(prec)}", "c": "#00e5ff", "s": 9})
+        add_report("Image → coordonnées", f.name, f"GPS EXIF : {lat:.6f}, {lon:.6f} · {prec}")
     else:
         con.print(Panel("Pas de GPS dans le fichier (normal pour une image de réseau social) → estimation par IA locale.", border_style=Y))
         if not geoclip_ready() and not getattr(sys, "frozen", False) and ask_yes("Installer l'IA GeoCLIP (locale, ~1 Go, une seule fois) ?"):
@@ -6682,8 +7109,14 @@ def mod_img2gps():
                 t.add_row(*map(escape, r))
             con.print(t)
             free_geoclip()
-            con.print(coords_panel(preds[0][0], preds[0][1], "📌 Meilleure estimation"))
-            add_report("Image → coordonnées", f.name, "GeoCLIP : " + " | ".join(f"{r[1]} ({r[2]}, {r[3]})" for r in rows))
+            sp = max((haversine(preds[0][0], preds[0][1], a, b) for a, b, _ in preds[1:]), default=0)
+            verdict = ("les 5 hypothèses sont regroupées : zone plausible" if sp < 50 else "hypothèses dispersées : seule la région / le pays est indicatif"
+                       if sp < 800 else "hypothèses très dispersées : l'IA ne reconnaît pas le lieu, résultat non exploitable")
+            con.print(coords_panel(preds[0][0], preds[0][1], "📌 Estimation IA (pas une mesure)"))
+            con.print(f"[{FIAB_COL['C']}]● Estimation IA · à vérifier[/] [{M}]· dispersion des 5 hypothèses : {fmt_dist(sp * 1000)} → {verdict}. "
+                      "À confirmer avec Street View, la vue satellite ou la triangulation avant de s'en servir.")
+            found.append({"_c": {"lat": preds[0][0], "lon": preds[0][1], "r": max(sp, 1) * 1000}})
+            add_report("Image → coordonnées", f.name, f"ESTIMATION IA GeoCLIP (à vérifier, dispersion {fmt_dist(sp * 1000)}) : " + " | ".join(f"{r[1]} ({r[2]}, {r[3]})" for r in rows))
         if ollama_models() is not None and ask_yes("Demander aussi à l'IA de vision locale (Ollama) ?", True):
             try:
                 with con.status(f"[{P}]L'IA de vision observe l'image… (10 s à 2 min)", spinner="dots12"):
@@ -6692,14 +7125,23 @@ def mod_img2gps():
                 a, b = float(j["lat"]), float(j["lon"])
                 con.print(kv([("Lieu", f"{j.get('ville', '?')}, {j.get('pays', '?')}"), ("Confiance", f"{j.get('confiance', '?')} %"),
                               ("Indices", " · ".join(j.get("indices") or []))], f"🤖 IA de vision ({eng})", P))
-                con.print(coords_panel(a, b, "📌 Estimation de l'IA de vision"))
+                if not coords_valid(a, b):
+                    raise ValueError("coordonnées impossibles renvoyées par l'IA")
+                con.print(coords_panel(a, b, "📌 Estimation de l'IA de vision (pas une mesure)"))
+                gc = next((x for x in found if x.get("label", "").startswith("<b>GeoCLIP #1")), None)
+                if gc:
+                    dd = haversine(a, b, gc["lat"], gc["lon"])
+                    con.print(f"[{M}]Écart avec GeoCLIP : {fmt_dist(dd * 1000)} → " + (f"[{FIAB_COL['B']}]les deux IA sont d'accord : zone probable[/]" if dd < 50
+                              else f"[{FIAB_COL['C']}]les deux IA ne sont pas d'accord : aucune des deux positions n'est fiable seule[/]"))
+                con.print(f"[{FIAB_COL['C']}]● Une IA de vision peut inventer un lieu avec aplomb : sa « confiance » n'est pas une probabilité mesurée.")
                 found.append({"lat": a, "lon": b, "label": f"<b>IA vision</b><br>{escape_html(str(j.get('ville', '')))}", "c": "#ffc861", "icon": "★", "s": 22})
-                add_report("Image → coordonnées", f.name, f"IA vision : {a:.5f}, {b:.5f} ({j.get('ville')}, {j.get('pays')})")
+                add_report("Image → coordonnées", f.name, f"ESTIMATION IA vision (à vérifier) : {a:.5f}, {b:.5f} ({j.get('ville')}, {j.get('pays')})")
             except Exception as e:
                 log(f"IA de vision : {e}", Y)
     if found:
         if ask_yes("Ouvrir la carte ?", True):
-            save_open("image_coords", quick_map(f"Image → coordonnées · {f.name}", found))
+            save_open("image_coords", quick_map(f"Image → coordonnées · {f.name}", [x for x in found if "_c" not in x],
+                                                circles=[x["_c"] for x in found if "_c" in x] or None))
         if ask_yes("Lancer la géoloc complète (triangulation, ombres…) sur cette image ?"):
             return mod_geo(str(f))
     else:
@@ -6749,36 +7191,55 @@ def mod_iplookup():
             res[k] = fn()
         except Exception:
             res[k] = None
-    jobs = {"who": lambda: get_json(f"https://ipwho.is/{ip}", 10),
-            "api": lambda: get_json(f"http://ip-api.com/json/{ip}?fields=66846719", 10),
+    jobs = {"geo": lambda: ip_geo(ip),
+            "ripe": lambda: get_json("https://stat.ripe.net/data/prefix-overview/data.json", 12, params={"resource": ip}).get("data", {}),
             "sdb": lambda: get_json(f"https://internetdb.shodan.io/{ip}", 10),
             "rdns": lambda: socket.gethostbyaddr(ip)[0],
             "tor": lambda: ip in (tor_exits() or set()),
             "abuse": lambda: ", ".join(get_json(f"https://stat.ripe.net/data/abuse-contact-finder/data.json?resource={ip}", 10)["data"].get("abuse_contacts") or []),
             "rev": lambda: [d for d in get(f"https://api.hackertarget.com/reverseiplookup/?q={ip}", 12).text.split() if "." in d and "error" not in d.lower()][:200]}
-    with con.status(f"[{P}]Interrogation de 7 sources…", spinner="dots12"):
+    with con.status(f"[{P}]Interrogation de 10 sources…", spinner="dots12"):
         with _TPE(8) as ex:
             list(ex.map(lambda kv_: job(*kv_), jobs.items()))
-    w, a, s = res.get("who") or {}, res.get("api") or {}, res.get("sdb") or {}
-    conn = w.get("connection") or {}
-    lat, lon = w.get("latitude") or a.get("lat"), w.get("longitude") or a.get("lon")
+    geo = res.get("geo") or ip_consensus({})
+    S = geo["sources"]
+    first = lambda k: next((x.get(k) for x in S.values() if x.get(k) not in (None, "")), None)
+    a, s = S.get("ip-api.com") or {}, res.get("sdb") or {}
+    ripe = res.get("ripe") or {}
+    rasn = (ripe.get("asns") or [{}])[0]
+    lat, lon = geo["lat"], geo["lon"]
+    asns = {x.get("asn") for x in S.values() if x.get("asn")} | ({rasn.get("asn")} if rasn.get("asn") else set())
     flags = []
     if res.get("tor"):
-        flags.append("[bold #ff5c7a]TOR[/]")
+        flags.append("[bold #ff5c7a]TOR (liste officielle des sorties Tor)[/]")
     if a.get("proxy"):
         flags.append("[#ffc861]VPN / proxy[/]")
     if a.get("hosting"):
         flags.append("[#ffc861]hébergeur / datacenter[/]")
     if a.get("mobile"):
         flags.append("[#7aa2ff]réseau mobile[/]")
+    masked = bool(res.get("tor") or a.get("proxy") or a.get("hosting"))
+    pos_txt = None
+    if lat is not None:
+        pos_txt = f"{lat:.4f}, {lon:.4f}  (zone de ± {geo['radius_km']:.0f} km, jamais une adresse)"
     p1 = kv([("IP", f"{ip}  ({'IPv6' if ':' in ip else 'IPv4'})"), ("Reverse DNS", res.get("rdns") or a.get("reverse")),
-             ("Pays", f"{w.get('country') or a.get('country', '')} ({w.get('country_code') or a.get('countryCode', '')})"), ("Région", w.get("region") or a.get("regionName")),
-             ("Ville", f"{w.get('city') or a.get('city', '')} {w.get('postal') or a.get('zip') or ''}"), ("Coordonnées (approx.)", f"{lat}, {lon}" if lat else None),
-             ("Fuseau", (w.get("timezone") or {}).get("id") or a.get("timezone")), ("Opérateur (ISP)", conn.get("isp") or a.get("isp")),
-             ("Organisation", conn.get("org") or a.get("org")), ("ASN", f"AS{conn.get('asn')}" if conn.get("asn") else a.get("as")),
-             ("Domaine opérateur", conn.get("domain")), ("Type", Text.from_markup(" · ".join(flags)) if flags else "connexion classique (box, entreprise…)"),
+             ("Pays", f"{geo['country'] or '?'} ({geo['cc'] or '?'})  ·  {geo.get('pays_txt', '')}"),
+             ("Région", first("region")),
+             ("Ville", (f"{geo['city']} {first('postal') or ''}".strip() + f"  ·  {geo.get('ville_txt', '')}") if geo["city"] else None),
+             ("Position", pos_txt),
+             ("Fiabilité", Text.from_markup(fiab_tag("A", "pays recoupé") if geo["level"] == "A" else fiab_tag("C", "pays non recoupé"))
+              if not masked else Text.from_markup(f"[{FIAB_COL['C']}]● position = celle du serveur VPN / Tor / hébergeur, pas celle de l'utilisateur[/]")),
+             ("Fuseau", first("tz")), ("Opérateur (ISP)", first("isp")),
+             ("Organisation", first("org")),
+             ("ASN", (f"AS{rasn['asn']} · {rasn.get('holder', '')}  (registre officiel RIPEstat)" if rasn.get("asn") else (f"AS{first('asn')}" if first("asn") else None))),
+             ("Plage d'adresses", ripe.get("resource")),
+             ("Sources en désaccord sur l'ASN", ", ".join(f"AS{x}" for x in sorted(asns)) if len(asns) > 1 else None),
+             ("Domaine opérateur", first("domain")), ("Type", Text.from_markup(" · ".join(flags)) if flags else "connexion classique (box, entreprise…)"),
              ("Contact abus", res.get("abuse"))], f"🧭 {ip}", G)
-    pages = [p1]
+    det = [(n, f"{v.get('country') or v.get('cc')} · {v.get('city') or '?'} · {v.get('lat')}, {v.get('lon')}") for n, v in S.items()]
+    det += [(n, "pas de réponse") for n, _ in IP_SOURCES if n not in S]
+    pages = [p1, kv(det + [("Lecture", "Le pays est fiable quand toutes les sources sont d'accord. La ville vient de bases commerciales : "
+                                   "elle indique où l'opérateur déclare ses adresses, souvent à des dizaines de km de l'utilisateur.")], "🧪 Détail par source (recoupement)")]
     if s:
         pages.append(kv([("Ports ouverts", ", ".join(map(str, s.get("ports") or [])) or "aucun vu"), ("Noms d'hôtes", ", ".join(s.get("hostnames") or [])),
                          ("Logiciels (CPE)", "\n".join(s.get("cpes") or [])), ("Failles connues (CVE)", ", ".join((s.get("vulns") or [])[:40])),
@@ -6789,12 +7250,13 @@ def mod_iplookup():
                      ("VirusTotal", f"https://www.virustotal.com/gui/ip-address/{ip}"), ("GreyNoise", f"https://viz.greynoise.io/ip/{ip}"),
                      ("BGP.tools", f"https://bgp.tools/prefix/{ip}"), ("IPinfo", f"https://ipinfo.io/{ip}")], "🔗 Aller plus loin"))
     view_pages(f"IP LOOKUP · {ip}", pages)
-    add_report("IP lookup", ip, f"{w.get('country')} {w.get('city')} · {conn.get('isp') or a.get('isp')} · AS{conn.get('asn')} · ports {s.get('ports') if s else '?'}"
-               + (" · TOR" if res.get("tor") else "") + (" · VPN/proxy" if a.get("proxy") else ""))
+    add_report("IP lookup", ip, f"{geo['country']} {geo['city'] or ''} · {first('isp')} · AS{rasn.get('asn') or first('asn')} · ports {s.get('ports') if s else '?'}"
+               + (" · TOR" if res.get("tor") else "") + (" · VPN/proxy" if a.get("proxy") else "") + f" · fiabilité : {geo['resume']}")
     con.print(f"[{M}]⚠ La position d'une IP est celle de l'opérateur (ville ou pays), jamais l'adresse d'une personne.")
-    if lat and ask_yes("Ouvrir la carte ?"):
-        save_open("ip", quick_map(f"IP {ip}", [{"lat": lat, "lon": lon, "label": f"<b>{ip}</b><br>{escape_html(str(conn.get('isp') or ''))}"}],
-                                  circles=[{"lat": lat, "lon": lon, "r": 25000}]))
+    if lat is not None and ask_yes("Ouvrir la carte ?"):
+        mk = [{"lat": lat, "lon": lon, "label": f"<b>{ip}</b><br>{escape_html(str(first('isp') or ''))}<br>zone de ± {geo['radius_km']:.0f} km"}]
+        mk += [{"lat": v["lat"], "lon": v["lon"], "label": escape_html(f"{n} : {v.get('city') or '?'}"), "c": "#7aa2ff", "s": 5} for n, v in S.items() if v.get("lat") is not None]
+        save_open("ip", quick_map(f"IP {ip} · {len(S)} sources", mk, circles=[{"lat": lat, "lon": lon, "r": geo["radius_km"] * 1000}]))
     pause()
 
 
@@ -7187,7 +7649,8 @@ def wmn_data():
     return json.loads(f.read_text(encoding="utf-8"))["sites"]
 
 
-def wmn_check(s, u):
+def _wmn_raw(s, u):
+    """True / False, ou None si le site n'a pas répondu."""
     url = s["uri_check"].replace("{account}", u)
     try:
         if s.get("post_body"):
@@ -7199,7 +7662,30 @@ def wmn_check(s, u):
     ok = r.status_code == s.get("e_code") and s.get("e_string", "") in r.text
     if ok and s.get("m_string") and s["m_string"] in r.text:
         ok = False
-    return (s.get("uri_pretty") or url).replace("{account}", u) if ok else None
+    return ok
+
+
+_WMN_CTRL = {}
+
+
+def wmn_check(s, u):
+    """Lien du profil si le compte existe ET que le site répond « absent » à un pseudo de contrôle (sinon None)."""
+    if not _wmn_raw(s, u):
+        return None
+    k = s.get("name")
+    if k not in _WMN_CTRL:
+        _WMN_CTRL[k] = _wmn_raw(s, _CTRL_NAME)
+    if _WMN_CTRL[k] is not False:  # le site dit « trouvé » à tout, ou n'a pas pu être contrôlé : résultat écarté
+        _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
+        return None
+    return (s.get("uri_pretty") or url_of(s, u)).replace("{account}", u)
+
+
+_WMN_STATS = {}
+
+
+def url_of(s, u):
+    return s["uri_check"].replace("{account}", u)
 
 
 def mod_wmn(u=None):
@@ -7213,6 +7699,7 @@ def mod_wmn(u=None):
         log(str(e), R)
         return pause()
     hits = []
+    _WMN_STATS.clear()
     with Progress(TextColumn(f"[{G}]{escape(u)}"), BarColumn(complete_style="#00e5ff", finished_style="#b388ff"), TaskProgressColumn(),
                   TextColumn("{task.description}"), console=con, transient=True) as pr:
         t = pr.add_task("", total=len(sites))
@@ -7225,7 +7712,9 @@ def mod_wmn(u=None):
                     hits.append((s["name"], s.get("cat", ""), res))
                 pr.update(t, advance=1, description=f"[{P}]{len(hits)} trouvé(s)")
     hits.sort(key=lambda h: (h[1], h[0].lower()))
-    log(f"{len(hits)} compte(s) trouvé(s) sur {len(sites)} sites.", G)
+    log(f"{len(hits)} compte(s) confirmé(s) sur {len(sites)} sites.", G)
+    if _WMN_STATS.get("drop"):
+        con.print(f"[{M}]{_WMN_STATS['drop']} résultat(s) écarté(s) : ces sites répondent « trouvé » même pour un pseudo inexistant (faux positifs).")
     if hits:
         table_pages(f"WHATSMYNAME · {u}", ["Site", "Catégorie", "Lien"], hits)
         add_report("WhatsMyName", u, "\n".join(f"{a} ({b}) : {c}" for a, b, c in hits))
@@ -7347,7 +7836,7 @@ def mod_person():
              ("Documents PDF", f"https://www.google.com/search?q={qp(q + ' filetype:pdf')}"), ("Images", f"https://www.google.com/search?tbm=isch&q={qp(q)}"),
              ("Décès (INSEE)", f"https://deces.matchid.io/search?q={qp(full)}")]
     users = list(dict.fromkeys([_strip_acc(first + last), _strip_acc(first + "." + last), _strip_acc(first + "_" + last), _strip_acc(first[:1] + last), _strip_acc(last + first)]))
-    pages = [kv([("Personne", full + (f" · {city}" if city else "")), ("Emails avec Gravatar (existent)", "\n".join(grav) or "aucun"),
+    pages = [kv([("Personne", full + (f" · {city}" if city else "")), ("Adresses qui existent (profil Gravatar)", ("\n".join(grav) + "\n⚠ l'adresse existe, mais elle peut appartenir à un homonyme : à confirmer") if grav else "aucune"),
                  ("Serveur mail du domaine", mx), ("Pseudos probables", ", ".join(users)), ("Emails possibles", f"{len(perms)} combinaisons (page suivante)")], f"🧍 {full}", G),
              kv([(d, "\n".join(e for e in perms if e.endswith("@" + d))) for d in doms], "📧 Emails possibles"),
              kv(links, "🔎 Recherches prêtes")]
@@ -7763,7 +8252,7 @@ TRANSFORMS = {
     "ip": [("ip", "IP lookup (géo, opérateur, ports)"), ("revip", "Sites sur la même IP")],
     "domaine": [("dns", "DNS : IP, MX, NS"), ("subs", "Sous-domaines (certificats)"), ("breach_dom", "Fuites du domaine"), ("iocs", "Indices du site")],
     "url": [("url_dom", "Domaine du lien"), ("iocs", "Indices de la page")],
-    "personne": [("perms", "Emails probables (vérifiés Gravatar)")],
+    "personne": [("perms", "Emails possibles (adresse existante, propriétaire à confirmer)")],
     "lieu": [("rev", "Adresse du lieu")],
 }
 
@@ -7790,91 +8279,120 @@ def graph_transform(e, nid, t):
     if t == "social":
         found, _ = _quiet_social(lab)
         for name, ico, d in found:
-            gnode("compte", f"{name} · {lab}", {k: v for k, v in d.items() if not k.startswith("_")} | {"url": d.get("_url")}, nid, "", name)
-            for em in re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", str(d.get("Emails trouvés dans les commits", "")) + " " + str(d.get("Email public") or "")):
-                gnode("email", em, None, f"compte:{name.lower()} · {lab.lower()}", "commit")
+            gnode("compte", f"{name} · {lab}", {k: v for k, v in d.items() if not k.startswith("_")} | {"url": d.get("_url")}, nid, "", name,
+                  fiab="B", src=f"profil public lu sur {name}")
+            for em in re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", str(d.get("Email public") or "")):
+                gnode("email", em, None, f"compte:{name.lower()} · {lab.lower()}", "email public", fiab="A", src=f"affiché sur le profil {name}")
+            for em in re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", str(d.get("Emails trouvés dans les commits", ""))):
+                gnode("email", em, None, f"compte:{name.lower()} · {lab.lower()}", "commit", fiab="B",
+                      src="auteur d'un commit dans l'activité du compte (peut être un collaborateur)")
         msg = f"{len(found)} profil(s)"
     elif t == "wmn":
         sites = [s for s in wmn_data() if s.get("valid") is not False and "nsfw" not in s.get("cat", "").lower()]
+        _WMN_STATS.clear()
         with _TPE(48) as ex:
             for s, res in zip(sites, ex.map(lambda s: wmn_check(s, lab), sites)):
                 if res:
-                    gnode("compte", f"{s['name']} · {lab}", {"url": res, "catégorie": s.get("cat")}, nid, "", s["name"])
+                    gnode("compte", f"{s['name']} · {lab}", {"url": res, "catégorie": s.get("cat")}, nid, "", s["name"],
+                          fiab="B", src="WhatsMyName (existence confirmée par test de contrôle)")
+        if _WMN_STATS.get("drop"):
+            msg = f"{_WMN_STATS['drop']} faux positif(s) écarté(s)"
     elif t == "pseudo_of":
         u = lab.split(" · ", 1)[-1] if " · " in lab else (re.search(r"[/@]([\w.-]{2,40})/?$", url or "") or [None, None])[1]
         if u:
-            gnode("pseudo", u, None, nid, "pseudo")
+            gnode("pseudo", u, None, nid, "pseudo", fiab="A", src="pseudo lu dans l'adresse du compte")
     elif t == "gravatar":
         h = hashlib.md5(lab.lower().strip().encode()).hexdigest()
         try:
             j = get_json(f"https://en.gravatar.com/{h}.json", 10)["entry"][0]
-            gnode("personne", j.get("displayName") or j.get("preferredUsername"), {"photo": j.get("thumbnailUrl"), "lieu": j.get("currentLocation"), "bio": j.get("aboutMe")}, nid, "gravatar")
+            gs = "profil Gravatar rattaché à cet email (déclaré par son propriétaire)"
+            gnode("personne", j.get("displayName") or j.get("preferredUsername"), {"photo": j.get("thumbnailUrl"), "lieu": j.get("currentLocation"), "bio": j.get("aboutMe")}, nid, "gravatar", fiab="A", src=gs)
             if j.get("preferredUsername"):
-                gnode("pseudo", j["preferredUsername"], None, nid, "gravatar")
+                gnode("pseudo", j["preferredUsername"], None, nid, "gravatar", fiab="A", src=gs)
             for a in j.get("accounts", []):
-                gnode("compte", f"{a.get('shortname')} · {a.get('username') or a.get('display')}", {"url": a.get("url")}, nid, "", a.get("shortname"))
+                gnode("compte", f"{a.get('shortname')} · {a.get('username') or a.get('display')}", {"url": a.get("url")}, nid, "", a.get("shortname"),
+                      fiab="A" if a.get("verified") in (True, "true") else "B", src=gs + (" · compte vérifié par Gravatar" if a.get("verified") in (True, "true") else " · compte non vérifié"))
             for u in j.get("urls", []):
-                gnode("url", u.get("value"), {"url": u.get("value")}, nid, "", re.sub(r"^https?://(www\.)?", "", u.get("value", "")))
+                gnode("url", u.get("value"), {"url": u.get("value")}, nid, "", re.sub(r"^https?://(www\.)?", "", u.get("value", "")), fiab="A", src=gs)
         except Exception:
             msg = "pas de profil Gravatar public"
     elif t == "email_user":
-        gnode("pseudo", lab.split("@")[0], None, nid, "début de l'email")
+        gnode("pseudo", lab.split("@")[0], None, nid, "début de l'email", fiab="C",
+              src="hypothèse : beaucoup de gens réutilisent le début de leur email comme pseudo, mais rien ne le prouve")
     elif t == "email_dom":
         d = lab.split("@")[-1]
-        dn = gnode("domaine", d, {"MX": ", ".join(dns(d, "MX")[:4])}, nid, "domaine")
-        for mx in dns(d, "MX")[:4]:
+        mxs = dns(d, "MX")[:4]
+        dn = gnode("domaine", d, {"MX": ", ".join(mxs)}, nid, "domaine", fiab="A", src="partie droite de l'email")
+        for mx in mxs:
             mxh = _dom(mx.split()[-1].rstrip("."))
             if "." in mxh:
-                gnode("domaine", mxh, None, dn, "MX")
+                gnode("domaine", mxh, None, dn, "MX", fiab="A", src="enregistrement DNS MX (réponse directe du DNS)")
     elif t == "breach_dom":
         d = _dom(lab.split("@")[-1])
         for b in get_json(f"https://haveibeenpwned.com/api/v3/breaches?domain={d}", 15, headers={"User-Agent": "CatExe-OSINT"}) or []:
-            gnode("fuite", f"{b['Title']} ({b['BreachDate'][:4]})", {"date": b["BreachDate"], "comptes": b["PwnCount"], "données": ", ".join(b.get("DataClasses") or [])}, nid, "fuite")
+            gnode("fuite", f"{b['Title']} ({b['BreachDate'][:4]})", {"date": b["BreachDate"], "comptes": b["PwnCount"], "données": ", ".join(b.get("DataClasses") or []),
+                                                                       "vérifiée": "oui" if b.get("IsVerified") else "non (fuite non authentifiée)"}, nid, "fuite",
+                  fiab="A" if b.get("IsVerified") else "C",
+                  src="Have I Been Pwned : fuite du SITE (ne dit pas si l'adresse de la cible est dedans)")
         if len(gload()["nodes"]) == before:
             msg = "aucune fuite connue pour ce domaine"
     elif t == "ip":
-        w = get_json(f"https://ipwho.is/{lab}", 10)
+        c = ip_geo(lab)
+        S = c["sources"]
+        first = lambda k: next((x.get(k) for x in S.values() if x.get(k) not in (None, "")), None)
         s = {}
         try:
             s = get_json(f"https://internetdb.shodan.io/{lab}", 10)
         except Exception:
             pass
-        n["data"].update({"pays": w.get("country"), "ville": w.get("city"), "opérateur": (w.get("connection") or {}).get("isp"), "ASN": (w.get("connection") or {}).get("asn"),
-                          "ports": ", ".join(map(str, s.get("ports") or [])), "failles": ", ".join((s.get("vulns") or [])[:15])})
-        if w.get("connection", {}).get("org"):
-            gnode("organisation", w["connection"]["org"], {"ASN": w["connection"].get("asn")}, nid, "opérateur")
-        if w.get("latitude"):
-            gnode("lieu", f"{w.get('city')}, {w.get('country')}", {"coordonnées": f"{w['latitude']}, {w['longitude']}", "url": f"https://www.google.com/maps?q={w['latitude']},{w['longitude']}"}, nid, "≈ position")
+        n["data"].update({"pays": f"{c['country']} ({c.get('pays_txt', '')})" if c["country"] else None, "ville": f"{c['city']} ({c.get('ville_txt', '')})" if c["city"] else None,
+                          "opérateur": first("isp"), "ASN": first("asn"), "ports": ", ".join(map(str, s.get("ports") or [])), "failles": ", ".join((s.get("vulns") or [])[:15]),
+                          "géolocalisation": c["resume"]})
+        if first("org"):
+            gnode("organisation", first("org"), {"ASN": first("asn")}, nid, "opérateur", fiab="A", src="registre de l'opérateur réseau (ASN)")
+        if c["lat"] is not None:
+            gnode("lieu", f"{c['city'] or '?'}, {c['country']} (zone IP)", {"coordonnées": f"{c['lat']}, {c['lon']}", "marge": f"± {c['radius_km']:.0f} km",
+                                                                      "url": f"https://www.google.com/maps?q={c['lat']},{c['lon']}"}, nid, f"≈ ± {c['radius_km']:.0f} km", fiab="C",
+                  src=f"bases de géolocalisation IP ({c['resume']}). C'est la zone de l'opérateur, jamais l'adresse d'une personne.")
         for hn in s.get("hostnames") or []:
-            gnode("domaine", hn, None, nid, "nom d'hôte")
+            gnode("domaine", hn, None, nid, "nom d'hôte", fiab="B", src="Shodan InternetDB (nom vu sur cette IP, peut dater)")
     elif t == "revip":
         for d in [x for x in get(f"https://api.hackertarget.com/reverseiplookup/?q={lab}", 15).text.split() if "." in x and "error" not in x.lower()][:80]:
-            gnode("domaine", d, None, nid, "même IP")
+            gnode("domaine", d, None, nid, "même IP", fiab="B",
+                  src="HackerTarget (historique DNS) : partager une IP ne prouve pas un lien, un hébergeur met des milliers de sites sur la même")
     elif t == "dns":
         d = _dom(lab)
+        ds = "enregistrement DNS lu à l'instant (réponse directe du DNS)"
         for ip in dns(d, "A")[:6]:
-            gnode("ip", ip, None, nid, "A")
+            gnode("ip", ip, None, nid, "A", fiab="A", src=ds)
         for mx in dns(d, "MX")[:4]:
             mxh = _dom(mx.split()[-1].rstrip("."))
             if "." in mxh:
-                gnode("domaine", mxh, None, nid, "MX")
+                gnode("domaine", mxh, None, nid, "MX", fiab="A", src=ds)
         for ns in dns(d, "NS")[:4]:
-            gnode("domaine", _dom(ns.rstrip(".")), None, nid, "NS")
+            gnode("domaine", _dom(ns.rstrip(".")), None, nid, "NS", fiab="A", src=ds)
     elif t == "subs":
         d = _dom(lab)
         subs = sorted({x.strip().lower().lstrip("*.") for c in get_json(f"https://crt.sh/?q=%25.{d}&output=json", 30) for x in c.get("name_value", "").split("\n")} - {d})
+        subs = [x for x in subs if x.endswith("." + d) and re.fullmatch(r"[a-z0-9._-]+", x)]
+        live = {}
+        with _TPE(24) as ex:
+            for sd, a in zip(subs[:80], ex.map(lambda x: _safe(dns, x, "A"), subs[:80])):
+                live[sd] = a
         for sd in subs[:80]:
-            gnode("domaine", sd, None, nid, "sous-domaine")
+            gnode("domaine", sd, {"état": "actif (répond en DNS)" if live.get(sd) else "inactif aujourd'hui (vu dans un ancien certificat)"}, nid, "sous-domaine",
+                  fiab="A" if live.get(sd) else "B", src="certificats HTTPS publics (crt.sh)" + (" + résolution DNS vérifiée" if live.get(sd) else ""))
         msg = f"{len(subs)} sous-domaine(s)" + (" (80 affichés)" if len(subs) > 80 else "")
     elif t == "url_dom":
-        gnode("domaine", _dom(url or lab), None, nid, "domaine")
+        gnode("domaine", _dom(url or lab), None, nid, "domaine", fiab="A", src="domaine lu dans le lien")
     elif t == "iocs":
         page = url or ("https://" + _dom(lab))
         txt = get(page, 15).text
         io_ = extract_iocs(html_text(txt) + " " + " ".join(re.findall(r'href="([^"]+)"', txt)))
         for cat, ty in (("Emails", "email"), ("IPv4", "ip"), ("Profils réseaux", "url"), ("Bitcoin", "crypto"), ("Ethereum", "crypto")):
             for v in sorted(io_.get(cat) or [])[:30]:
-                gnode(ty, v, {"url": "https://" + v} if ty == "url" and not v.startswith("http") else None, nid, cat.lower(), re.sub(r"^https?://(www\.)?", "", v) if ty == "url" else None)
+                gnode(ty, v, {"url": "https://" + v} if ty == "url" and not v.startswith("http") else None, nid, cat.lower(), re.sub(r"^https?://(www\.)?", "", v) if ty == "url" else None,
+                      fiab="B", src=f"présent sur la page {page} (une page peut citer des éléments sans rapport avec son auteur)")
     elif t == "perms":
         parts = lab.split()
         if len(parts) >= 2:
@@ -7882,11 +8400,13 @@ def graph_transform(e, nid, t):
             with _TPE(16) as ex:
                 for em, ok in zip(perms, ex.map(gravatar_hit, perms)):
                     if ok:
-                        gnode("email", em, None, nid, "existe (Gravatar)")
+                        gnode("email", em, None, nid, "adresse devinée", fiab="C",
+                              src="adresse construite à partir du nom ; elle existe (profil Gravatar) mais peut appartenir à un homonyme")
     elif t == "rev":
-        c = parse_coords(data.get("coordonnées") or lab)
+        c = parse_coords(data.get("coordonnées") or lab, quiet=True)
         if c:
             n["data"]["adresse"] = place_name(c[0], c[1], 18)
+            n["data"]["adresse (source)"] = "OpenStreetMap : adresse la plus proche du point, à ± un numéro de rue"
     n.setdefault("data", {})["_faits"] = sorted(set(n["data"].get("_faits") or []) | {t})
     gsave()
     added = len(gload()["nodes"]) - before
@@ -7949,19 +8469,42 @@ def gsave():
     (gdir() / f"{g['name']}.json").write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
 
 
-def gnode(typ, label, data=None, parent=None, rel="", short=None):
+def gnode(typ, label, data=None, parent=None, rel="", short=None, fiab=None, src=None):
+    """Ajoute (ou complète) une entité du graphe.
+    fiab : "A" vérifié à la source · "B" existe, lien avec la cible à confirmer · "C" estimation / hypothèse.
+    src  : d'où vient l'information (affiché dans la fiche et le rapport).
+    Une entité garde toujours sa meilleure fiabilité connue ; une hypothèse (C) est marquée « À vérifier » d'office."""
     g = gload()
     label = str(label).strip()[:120]
     if not label:
         return None
     nid = f"{typ}:{label.lower()}"
+    new = nid not in g["nodes"]
     n = g["nodes"].setdefault(nid, {"type": typ, "label": label, "data": {}, "t": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")})
     if short:
         n["short"] = short
     if data:
         n["data"].update({k: (v if isinstance(v, (str, int, float, bool)) else str(v))[:600] if isinstance(v, str) else v for k, v in data.items() if v not in (None, "", [], {})})
-    if parent and parent != nid and not any(e["from"] == parent and e["to"] == nid for e in g["edges"]):
-        g["edges"].append({"from": parent, "to": nid, "label": rel})
+    if fiab in FIAB:
+        old = n["data"].get("_fiab")
+        if old is None or fiab < old:
+            n["data"]["_fiab"] = fiab
+            n["data"]["fiabilité"] = FIAB[fiab]
+            if src:
+                n["data"]["source"] = src
+            if fiab == "C" and new and not n["data"].get("_statut"):
+                n["data"]["_statut"] = "check"
+            elif fiab != "C" and old == "C" and n["data"].get("_statut") == "check" and not n["data"].get("_statut_user"):
+                n["data"].pop("_statut", None)
+    elif src and not n["data"].get("source"):
+        n["data"]["source"] = src
+    if parent and parent != nid:
+        e = next((e for e in g["edges"] if e["from"] == parent and e["to"] == nid), None)
+        if e is None:
+            e = {"from": parent, "to": nid, "label": rel}
+            g["edges"].append(e)
+        if fiab in FIAB and (e.get("conf") is None or fiab < e["conf"]):
+            e["conf"] = fiab
     return nid
 
 
@@ -7977,20 +8520,25 @@ def graph_feed(mod, title, text):
             plat, u = title.split(" · ", 1)
             p = gnode("pseudo", u, None, root)
             d = dict(x.split(": ", 1) for x in str(text).split(" · ") if ": " in x)
-            c = gnode("compte", f"{plat} · {u}", d, p, "", plat)
+            c = gnode("compte", f"{plat} · {u}", d, p, "", plat, fiab="B", src=f"profil public {plat}")
         else:
             c = gnode(typ, title, {"résumé": str(text)[:600]}, root, mod)
         n = 0
         for line in str(text).splitlines():
             m = re.match(r"^(.+?) \((.*?)\) : (https?://\S+)$", line.strip())
             if m and n < 150:
-                gnode("compte", f"{m.group(1)} · {title}", {"url": m.group(3), "catégorie": m.group(2)}, c, "", m.group(1))
+                gnode("compte", f"{m.group(1)} · {title}", {"url": m.group(3), "catégorie": m.group(2)}, c, "", m.group(1),
+                      fiab="B", src=f"{mod} (existence confirmée par test de contrôle)")
                 n += 1
         if n == 0:
             iocs = extract_iocs(str(text))
+            est = bool(re.search(r"ESTIMATION|estimation|à vérifier|incertain", str(text)))
             for cat, typ2 in (("Emails", "email"), ("IPv4", "ip"), ("Liens", "url"), ("Bitcoin", "crypto"), ("Ethereum", "crypto"), ("Coordonnées GPS", "lieu")):
                 for v in sorted(iocs.get(cat) or [])[:25]:
-                    gnode(typ2, v, {"url": v} if typ2 == "url" else None, c, "", re.sub(r"^https?://(www\.)?", "", v) if typ2 == "url" else None)
+                    # une position sortie d'une IA ou d'une base IP est une estimation, pas un fait
+                    fb = "C" if typ2 == "lieu" and (est or mod.startswith(("IP lookup", "Géoloc"))) else "A" if typ2 == "lieu" and "GPS EXIF" in str(text) else "B"
+                    gnode(typ2, v, {"url": v} if typ2 == "url" else None, c, "", re.sub(r"^https?://(www\.)?", "", v) if typ2 == "url" else None,
+                          fiab=fb, src=f"relevé automatiquement dans le résultat « {mod} »")
         gsave()
     except Exception:
         pass
@@ -8176,7 +8724,7 @@ function render(){const ids=new Set(Object.keys(G.nodes));REAL=[...ids].filter(i
  N.update(Object.entries(G.nodes).map(([id,n])=>vnode(id,n)));N.getIds().forEach(i=>{if(!ids.has(i))N.remove(i)});
  const ek=new Set();E.update(G.edges.filter(e=>G.nodes[e.from]&&G.nodes[e.to]).map(e=>{const id=e.from+'→'+e.to;ek.add(id);const inP=pathSet&&pathSet.has(e.from)&&pathSet.has(e.to);
   return {id,from:e.from,to:e.to,label:e.label||'',font:{color:'#7480a8',size:10,strokeWidth:3,strokeColor:'#07081a',align:'middle'},color:{color:inP?'#00e5ff':col((G.nodes[e.to]||{}).type),highlight:'#00e5ff',hover:'#e4e9ff',opacity:pathSet&&!inP?.12:(inP?1:.42)},
-   width:inP?3.5:1.4,hoverWidth:1.6,selectionWidth:2.2,arrows:{to:{enabled:true,scaleFactor:.4}},smooth:{type:'continuous',roundness:.35}}}));
+   width:inP?3.5:1.4,dashes:e.conf=='C'?[5,5]:false,hoverWidth:1.6,selectionWidth:2.2,arrows:{to:{enabled:true,scaleFactor:.4}},smooth:{type:'continuous',roundness:.35}}}));
  E.getIds().forEach(i=>{if(!ek.has(i))E.remove(i)});
  $('empty').style.display=REAL?'none':'flex';filters();head();panel()}
 function head(){$('casename').textContent=NAME.replace(/_/g,' ');$('caseno').textContent=caseNo();
@@ -8230,7 +8778,7 @@ function bind(B){B.querySelectorAll('[data-id]').forEach(a=>a.onclick=ev=>{ev.pr
  B.querySelectorAll('button[data-a]').forEach(b=>b.onclick=()=>action(sel,b.dataset.a));
  B.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>setStatus(sel,b.dataset.s));
  const no=$('note');if(no)no.onchange=ev=>{const n=G.nodes[sel];n.data=n.data||{};n.data.note=ev.target.value;logp('Note modifiée : '+(n.short||n.label),sel);save()}}
-function setStatus(id,s){const n=G.nodes[id];n.data=n.data||{};n.data._statut=n.data._statut==s?undefined:s;if(!n.data._statut)delete n.data._statut;
+function setStatus(id,s){const n=G.nodes[id];n.data=n.data||{};n.data._statut=n.data._statut==s?undefined:s;if(!n.data._statut)delete n.data._statut;n.data._statut_user=1;
  logp('Évaluation : '+(n.short||n.label)+' → '+(n.data._statut?ST[s][0]:'aucune'),id);render();save()}
 function urlOf(n){return (n.data||{}).url||(/^https?:/.test(n.label)?n.label:null)||(n.type=='domaine'?'https://'+n.label:null)}
 function action(id,a){const n=G.nodes[id];if(!n)return;
@@ -8740,8 +9288,9 @@ ACC_CHECKS = [("Gravatar", "gravatar.com", _acc_gravatar), ("Duolingo", "duoling
               ("Spotify", "spotify.com", _acc_spotify), ("WordPress", "wordpress.com", _acc_wp), ("X / Twitter", "x.com", _acc_x), ("Adobe", "adobe.com", _acc_adobe)]
 
 
-def holehe_run(e):
-    """Holehe lancé directement dans l'outil (pas de sous-programme). None si Holehe n'est pas installé."""
+def holehe_run(e, only=None):
+    """Holehe lancé directement dans l'outil (pas de sous-programme). None si Holehe n'est pas installé.
+    only : ensemble de noms de modules à lancer (pour le test de contrôle)."""
     try:
         import trio
         import httpx
@@ -8750,6 +9299,10 @@ def holehe_run(e):
         return None
     import contextlib
     webs = get_functions(import_submodules("holehe.modules"))
+    if only is not None:
+        webs = [w for w in webs if w.__name__ in only]
+        if not webs:
+            return []
 
     async def go():
         out = []
@@ -8763,18 +9316,34 @@ def holehe_run(e):
         return trio.run(go)
 
 
+def ctrl_email(e):
+    """Adresse de contrôle qui n'existe pas, sur le même domaine que la cible."""
+    return f"{ctrl_name(14)}@{e.split('@')[-1]}"
+
+
 def email_accounts(e, deep=True):
-    """Renvoie (trouvés [(site, détail)], sites bloqués, sites testés, holehe_ok)."""
+    """Renvoie (trouvés [(site, détail)], sites bloqués, sites testés, holehe_ok).
+    Chaque « trouvé » est re-testé avec une adresse de contrôle inexistante : un site qui répond aussi oui à celle-ci
+    est écarté (faux positif) et compté dans EMAIL_DROP."""
     found, seen, limited, checked = [], set(), 0, 0
+    EMAIL_DROP.clear()
+    ctl = ctrl_email(e)
     with _TPE(8) as ex:
+        hits = []
         for (name, dom, fn), res in zip(ACC_CHECKS, ex.map(lambda x: _safe(x[2], e), ACC_CHECKS)):
             checked += 1
             if res is None:
                 limited += 1
             elif res[0]:
-                found.append((dom, res[1] and f"pseudo : {res[1]}"))
-                seen.add(dom.split(".")[0])
+                hits.append((dom, fn, res))
+        for (dom, fn, res), c in zip(hits, ex.map(lambda h: _safe(h[1], ctl), hits)):
+            if c is None or c[0]:
+                EMAIL_DROP.append(dom)
+                continue
+            found.append((dom, res[1] and f"pseudo : {res[1]}"))
+            seen.add(dom.split(".")[0])
     hol = holehe_run(e) if deep else None
+    cand = []
     for o in hol or []:
         dom = o.get("domain", "")
         key = "x" if dom.startswith("twitter") else dom.split(".")[0]
@@ -8785,10 +9354,21 @@ def email_accounts(e, deep=True):
             limited += 1
         elif o.get("exists"):
             seen.add(key)
+            cand.append(o)
+    if cand:
+        ctl_res = {o.get("name"): o for o in (holehe_run(ctl, {o.get("name") for o in cand}) or [])}
+        for o in cand:
+            c = ctl_res.get(o.get("name"))
+            if c is None or c.get("exists") or c.get("rateLimit"):
+                EMAIL_DROP.append(o.get("domain", ""))  # non contrôlable ou répond oui à tout : écarté
+                continue
             extra = " · ".join(x for x in (o.get("emailrecovery") and f"email de secours : {o['emailrecovery']}",
                                             o.get("phoneNumber") and f"téléphone : {o['phoneNumber']}") if x)
-            found.append((dom, extra))
+            found.append((o.get("domain", ""), extra))
     return found, limited, checked, hol is not None
+
+
+EMAIL_DROP = []
 
 
 def accounts_panel(e, found, limited, checked):
@@ -8799,7 +9379,8 @@ def accounts_panel(e, found, limited, checked):
         t.add_row(d, x or "")
     if not found:
         t.add_row("aucun compte trouvé", "")
-    t.caption = f"{checked} sites testés · {len(found)} trouvé(s) · {limited} n'ont pas répondu ou ont bloqué"
+    t.caption = (f"{checked} sites testés · {len(found)} confirmé(s) par test de contrôle · {limited} n'ont pas répondu ou ont bloqué"
+                 + (f" · {len(EMAIL_DROP)} écarté(s) (réponse non fiable)" if EMAIL_DROP else ""))
     return t
 
 
@@ -8827,9 +9408,11 @@ def mod_holehe():
     if not hol:
         con.print(f"[{M}]Holehe absent : seuls {len(ACC_CHECKS)} sites ont été testés.")
     con.print(f"[{M}]Pour aller plus loin : https://epieos.com/?q={_q(em)}")
+    if EMAIL_DROP:
+        con.print(f"[{M}]Écartés car non fiables (le site répond pareil pour une adresse inexistante, ou n'a pas pu être contrôlé) : {escape(', '.join(sorted(set(EMAIL_DROP))))}")
     root = gnode("email", em)
     for d, _ in found:
-        gnode("compte", f"{d} · {em}", None, root, "inscrit", d)
+        gnode("compte", f"{d} · {em}", None, root, "inscrit", d, fiab="A", src="page d'inscription du site + test de contrôle")
     gsave()
     add_report("mod_holehe", f"Comptes de {em}", "\n".join(f"{d} {x}" for d, x in found) or "aucun")
     pause()

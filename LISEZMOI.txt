@@ -1,4 +1,4 @@
-CAT.EXE // OSINT · GEOINT TOOL v6.0
+CAT.EXE // OSINT · GEOINT TOOL v6.4
 
 PYTHON : 3.14 minimum. LANCER.bat l'installe tout seul s'il manque (winget), sans toucher aux anciennes versions.
 
@@ -24,6 +24,26 @@ NOUVEAU EN v4
 - En-tetes d'email (phishing) · Extracteur d'indices · Archives d'une page · Reseau (IP, ASN, MAC)
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
+
+NOUVEAU EN v6.4 : FIABILITÉ
+---------------------------
+Chaque résultat dit maintenant d'où il vient et à quel point il est sûr.
+- 3 niveaux affichés partout (résultats, graphe, rapport) :
+  A = vérifié à la source · B = l'élément existe, son lien avec la cible reste à confirmer · C = estimation, à vérifier.
+- Pseudos (liste interne + 600 sites WhatsMyName) : chaque « trouvé » est re-testé avec un pseudo de contrôle qui
+  n'existe pas. Un site qui répond « trouvé » à tout est écarté : plus de faux positifs de ce type.
+- Email → comptes : même test de contrôle avec une adresse inexistante, les sites non fiables sont écartés et listés.
+- IP : 4 bases de géolocalisation recoupées + registre officiel (RIPEstat). L'outil dit si le pays est sûr, si la ville
+  l'est, l'écart entre les sources, et trace la vraie zone d'incertitude sur la carte.
+- Photo : le GPS EXIF est validé (positions vides ou impossibles rejetées), avec la marge d'erreur de l'appareil,
+  la date GPS en UTC et les signes de retouche. Les positions données par une IA sont marquées « estimation ».
+- Soleil et ombres : calcul astronomique NOAA complet avec réfraction (écart < 0,01°), lever / coucher officiels.
+- Distances et azimuts : calcul exact sur l'ellipsoïde WGS84 (celui du GPS), précision au mètre.
+- Coordonnées : tous les formats lus dans n'importe quel ordre, valeurs impossibles refusées, et pour un nom de lieu
+  l'outil affiche le lieu retenu, sa marge, et prévient si le nom est ambigu.
+- Graphe : chaque entité porte sa source et sa fiabilité, les hypothèses sont en pointillés et marquées « À vérifier ».
+Limite à connaître : l'outil prouve qu'un compte ou une adresse EXISTE. Savoir à QUI il appartient demande toujours
+un recoupement (photo, bio, liens) : c'est le niveau B.
 
 NOUVEAU EN v6.3
 ---------------
