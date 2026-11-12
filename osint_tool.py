@@ -47,7 +47,7 @@ try:
 except ImportError:
     phonenumbers = None
 
-VERSION = "6.4"
+VERSION = "6.5"
 DISCORD = "https://discord.gg/RWYAPZ8Qbp"
 DINFO = {}
 
@@ -8431,7 +8431,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -10379,11 +10379,634 @@ def tuto_gate(fn, name):
     return c == "go"
 
 
+# ============================================================ v6.5 : OUTILS DE PRÉCISION (recouper, mesurer, prouver)
+# ------------------------------------------------------------ 🧬 MÊME PERSONNE ? (recoupement de profils)
+def _norm_name(s):
+    return re.sub(r"[^a-z0-9 ]", "", _strip_acc(str(s or ""))).strip()
+
+
+def _profile_text(d):
+    return " ".join(str(v) for k, v in d.items() if v and k not in ("_img",)).lower()
+
+
+def _profile_handles(name, d):
+    """Façons dont ce profil peut être cité par un autre : son adresse, et pseudo@plateforme."""
+    out = set()
+    u = str(d.get("_url") or "").lower()
+    if u:
+        out.add(re.sub(r"^https?://(www\.)?", "", u).rstrip("/"))
+    return out
+
+
+def profile_match(a, b, same_avatar=None):
+    """Compare deux profils (nom de plateforme, fiche). Renvoie (score 0-100, [preuves], niveau A/B/C).
+    Une preuve « déclarée » (un profil cite l'autre) vaut bien plus qu'une ressemblance."""
+    (na, da), (nb, db) = a, b
+    score, why, declared = 0, [], False
+    ta, tb = _profile_text(da), _profile_text(db)
+    for (n1, d1, t1), (n2, d2, t2) in (((na, da, ta), (nb, db, tb)), ((nb, db, tb), (na, da, ta))):
+        tx = " ".join(str(v) for k, v in d1.items() if v and not k.startswith("_")).lower()
+        if any(h and h in tx for h in _profile_handles(n2, d2)):
+            score += 55
+            declared = True
+            why.append(f"le profil {n1} affiche un lien vers le profil {n2} (déclaré par son propriétaire)")
+    ea, eb = set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", ta)), set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", tb))
+    common = {e for e in ea & eb if "noreply" not in e}
+    if common:
+        score += 45
+        declared = True
+        why.append(f"même email sur les deux profils : {', '.join(sorted(common)[:2])}")
+    if same_avatar is True:
+        score += 40
+        why.append("même photo de profil (empreinte visuelle identique)")
+    n1, n2 = _norm_name(da.get("Nom")), _norm_name(db.get("Nom"))
+    if n1 and n1 == n2:
+        if len(n1.split()) >= 2:
+            score += 20
+            why.append(f"même nom complet affiché : {da.get('Nom')}")
+        elif len(n1) >= 4:
+            score += 6
+            why.append(f"même nom affiché (un seul mot, peu distinctif) : {da.get('Nom')}")
+    sa = {re.sub(r"^https?://(www\.)?", "", x).rstrip("/") for x in re.findall(r"https?://[^\s\"'<>)]+", " ".join(str(da.get(k) or "") for k in ("Site", "Lien", "Bio")).lower())}
+    sb = {re.sub(r"^https?://(www\.)?", "", x).rstrip("/") for x in re.findall(r"https?://[^\s\"'<>)]+", " ".join(str(db.get(k) or "") for k in ("Site", "Lien", "Bio")).lower())}
+    if sa & sb:
+        score += 30
+        why.append(f"même site personnel indiqué : {sorted(sa & sb)[0]}")
+    l1, l2 = _norm_name(da.get("Lieu")), _norm_name(db.get("Lieu"))
+    if l1 and l1 == l2:
+        score += 8
+        why.append(f"même lieu indiqué : {da.get('Lieu')}")
+    score = min(score, 100)
+    level = "A" if declared and score >= 55 else "B" if score >= 40 else "C"
+    return score, why, level
+
+
+def match_verdict(score, level):
+    if level == "A":
+        return "même personne : établi (lien déclaré par le titulaire du compte)"
+    if score >= 60:
+        return "même personne : très probable (plusieurs indices concordants)"
+    if score >= 40:
+        return "même personne : probable, à confirmer par un indice de plus"
+    if score >= 15:
+        return "lien possible, pas prouvé"
+    return "aucun lien démontré : le pseudo identique ne prouve rien"
+
+
+def _avatar_hash(url):
+    try:
+        r = get(url, 10)
+        if not r.ok or len(r.content) < 800:
+            return None
+        return _hashes(Image.open(io.BytesIO(r.content)).convert("RGB"))[2]
+    except Exception:
+        return None
+
+
+def mod_sameperson():
+    con.rule(f"[{G}]🧬 MÊME PERSONNE ? · recoupement de profils")
+    con.print(f"[{M}]Un compte au même pseudo n'est pas forcément la même personne. Cet outil cherche des preuves : lien d'un profil vers l'autre, "
+              "même email, même photo, même nom, même site. À utiliser sur tes comptes ou dans un cadre autorisé.")
+    ua = ask_text("Premier pseudo").strip().lstrip("@")
+    if not ua:
+        return
+    ub = ask_text("Deuxième pseudo (Entrée = le même, pour comparer ses comptes entre eux)").strip().lstrip("@") or ua
+    profs = []
+    for u in dict.fromkeys([ua, ub]):
+        with con.status(f"[{P}]Lecture des profils publics de « {escape(u)} »…", spinner="dots12"):
+            found, _ = _quiet_social(u)
+        profs += [(n, d, u) for n, ico, d in found]
+        log(f"{u} : {len(found)} profil(s) lisible(s)", G if found else Y)
+    pairs = [(x, y) for i, x in enumerate(profs) for y in profs[i + 1:] if x[0] != y[0] and (ua == ub or x[2] != y[2])]
+    if not pairs:
+        log("Il faut au moins deux profils sur des plateformes différentes pour comparer.", Y)
+        return pause()
+    with con.status(f"[{P}]Comparaison des photos de profil…", spinner="dots12"):
+        with _TPE(8) as ex:
+            hs = dict(zip([id(p[1]) for p in profs], ex.map(lambda p: _avatar_hash(p[1].get("_img")) if p[1].get("_img") else None, profs)))
+    rows, lines, best = [], [], 0
+    for x, y in pairs:
+        ha, hb = hs.get(id(x[1])), hs.get(id(y[1]))
+        same = None if ha is None or hb is None else bool(int((ha != hb).sum()) <= 5)
+        sc, why, lv = profile_match((x[0], x[1]), (y[0], y[1]), same)
+        best = max(best, sc)
+        rows.append((sc, f"{x[0]} · {x[2]}", f"{y[0]} · {y[2]}", lv, why))
+    rows.sort(key=lambda r: -r[0])
+    t = Table(title="Recoupement des profils", box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
+    for c in ("Profil 1", "Profil 2", "Score", "Verdict", "Preuves"):
+        t.add_column(c, overflow="fold")
+    for sc, p1, p2, lv, why in rows[:40]:
+        t.add_row(escape(p1), escape(p2), f"[{FIAB_COL[lv]}]{sc}/100", f"[{FIAB_COL[lv]}]{match_verdict(sc, lv)}", escape("\n".join("• " + w for w in why) or "aucune"))
+        lines.append(f"{p1} ↔ {p2} : {sc}/100 · {match_verdict(sc, lv)}" + (" · " + " ; ".join(why) if why else ""))
+        if sc >= 40:
+            a_, b_ = f"compte:{p1.lower()}", f"compte:{p2.lower()}"
+            gnode("compte", p1, None, None, "", p1.split(" · ")[0])
+            gnode("compte", p2, None, a_, f"même personne ({sc}/100)", p2.split(" · ")[0], fiab=lv, src="recoupement : " + " ; ".join(why))
+    con.print(t)
+    con.print(f"[{M}]Lecture : un lien déclaré (le profil A affiche le profil B) ou un même email est une preuve. Une même photo ou un même nom sont des indices : "
+              "il en faut plusieurs. L'absence de preuve ne veut pas dire que ce sont deux personnes différentes.")
+    gsave()
+    add_report("Même personne", f"{ua} ↔ {ub}", "\n".join(lines))
+    pause()
+
+
+# ------------------------------------------------------------ 🕵 COHÉRENCE D'UNE PHOTO (date, heure, lieu, soleil)
+def exif_times(path):
+    """Dates brutes d'une photo : {local, offset_s, gps_utc, software, modified}. Valeurs None si absentes."""
+    out = {"local": None, "offset_s": None, "gps_utc": None, "software": None, "modified": None}
+    try:
+        ex = Image.open(path).getexif()
+    except Exception:
+        return out
+    out["software"] = str(ex.get(305) or "").strip("\x00 ") or None
+    p = lambda v: datetime.datetime.strptime(str(v).strip("\x00 ")[:19], "%Y:%m:%d %H:%M:%S")
+    try:
+        sub = ex.get_ifd(0x8769)
+        if sub.get(36867):
+            out["local"] = p(sub.get(36867))
+        m = re.fullmatch(r"([+-])(\d\d):?(\d\d)", str(sub.get(36881) or "").strip("\x00 "))
+        if m:
+            out["offset_s"] = (1 if m[1] == "+" else -1) * (int(m[2]) * 3600 + int(m[3]) * 60)
+        if ex.get(306):
+            out["modified"] = p(ex.get(306))
+    except Exception:
+        pass
+    try:
+        g = ex.get_ifd(0x8825)
+        if 29 in g and 7 in g:
+            h, mi, se = (float(x) for x in g[7])
+            d = str(g[29]).strip("\x00 ").replace("-", ":")
+            out["gps_utc"] = datetime.datetime(int(d[:4]), int(d[5:7]), int(d[8:10])) + datetime.timedelta(hours=h, minutes=mi, seconds=se)
+    except Exception:
+        pass
+    return out
+
+
+EDITORS = ("photoshop", "lightroom", "gimp", "snapseed", "picsart", "pixelmator", "affinity", "canva", "facetune", "paint.net", "capture one", "luminar", "darktable", "remini")
+
+
+def photo_checks(t, gps, tz_s, lum):
+    """Contrôles de cohérence. t = exif_times(), gps = (lat, lon) ou None, tz_s = décalage horaire réel du lieu (s) ou None,
+    lum = luminosité moyenne du haut de l'image (0-255) ou None. Renvoie [(état ok/warn/bad/info, titre, détail)]."""
+    R_ = []
+    utc = t.get("gps_utc")
+    loc = t.get("local")
+    if loc and utc:
+        diff = (loc - utc).total_seconds()
+        if t.get("offset_s") is not None:
+            ok = abs(diff - t["offset_s"]) <= 120
+            R_.append(("ok" if ok else "bad", "Heure de l'appareil ↔ heure GPS",
+                       f"l'écart ({diff / 3600:+.2f} h) correspond au fuseau enregistré" if ok else
+                       f"écart de {diff / 3600:+.2f} h alors que le fichier annonce UTC{t['offset_s'] / 3600:+.2f} : dates modifiées ou appareil mal réglé"))
+        if tz_s is not None:
+            d2 = abs(diff - tz_s)
+            st = "ok" if d2 <= 180 else "warn" if abs(d2 - 3600) <= 180 else "bad"
+            R_.append((st, "Heure de l'appareil ↔ fuseau du lieu GPS",
+                       f"l'appareil était bien à l'heure locale du lieu (UTC{tz_s / 3600:+.2f})" if st == "ok" else
+                       "1 h d'écart : appareil resté à l'heure d'été / d'hiver, ou pas remis à l'heure" if st == "warn" else
+                       f"l'appareil affiche UTC{diff / 3600:+.2f} mais le lieu GPS est en UTC{tz_s / 3600:+.2f} : appareil réglé sur un autre fuseau (voyage) ou métadonnées retouchées"))
+    elif loc and not utc:
+        R_.append(("info", "Heure GPS", "absente : l'heure vient seulement de l'horloge de l'appareil, que son propriétaire peut régler comme il veut"))
+    if utc is None and loc and (t.get("offset_s") is not None or tz_s is not None):
+        utc = loc - datetime.timedelta(seconds=t["offset_s"] if t.get("offset_s") is not None else tz_s)
+    if utc and gps:
+        az, el = sun_pos(utc, gps[0], gps[1])
+        phase = "nuit noire" if el < -12 else "crépuscule" if el < -0.8 else "soleil très bas (lever / coucher)" if el < 6 else "plein jour"
+        det = f"à ce moment et à cet endroit : {phase}, soleil à {el:.1f}° de hauteur, azimut {az:.0f}° ({cardinal(az)})"
+        if el > 3:
+            det += f" · une ombre mesure {1 / math.tan(math.radians(el)):.2f} × la hauteur de l'objet et pointe vers le {cardinal((az + 180) % 360)} ({(az + 180) % 360:.0f}°)"
+        R_.append(("info", "Position du soleil calculée", det))
+        if lum is not None:
+            if el < -8 and lum > 140:
+                R_.append(("warn", "Luminosité ↔ heure", f"ciel très clair (luminosité {lum:.0f}/255) alors qu'il faisait nuit : incohérent pour une photo d'extérieur (normal en intérieur éclairé)"))
+            elif el > 12 and lum < 30:
+                R_.append(("warn", "Luminosité ↔ heure", f"image très sombre (luminosité {lum:.0f}/255) alors qu'il faisait plein jour : incohérent pour une photo d'extérieur (normal en intérieur sombre)"))
+            else:
+                R_.append(("ok", "Luminosité ↔ heure", f"la luminosité de l'image ({lum:.0f}/255) est compatible avec l'heure"))
+    if t.get("modified") and loc and abs((t["modified"] - loc).total_seconds()) > 120:
+        R_.append(("warn", "Date de modification", f"fichier ré-enregistré le {t['modified']:%d/%m/%Y %H:%M} (prise de vue : {loc:%d/%m/%Y %H:%M}) : il est passé par un logiciel"))
+    sw = (t.get("software") or "").lower()
+    if any(e in sw for e in EDITORS):
+        R_.append(("warn", "Logiciel", f"« {t['software']} » : logiciel de retouche, l'image a pu être modifiée"))
+    elif t.get("software"):
+        R_.append(("info", "Logiciel", f"« {t['software']} » (logiciel de l'appareil ou d'export)"))
+    if loc and loc > datetime.datetime.now() + datetime.timedelta(days=1):
+        R_.append(("bad", "Date", "la photo est datée dans le futur : horloge fausse ou date modifiée"))
+    if not loc and not utc:
+        R_.append(("info", "Dates", "aucune date dans le fichier (normal pour une image passée par un réseau social ou une messagerie : les métadonnées sont effacées)"))
+    return R_
+
+
+def mod_photocheck():
+    con.rule(f"[{G}]🕵 COHÉRENCE D'UNE PHOTO · date, heure, lieu, soleil")
+    con.print(f"[{M}]Vérifie que les informations d'une photo tiennent debout entre elles : heure de l'appareil, heure GPS, fuseau du lieu, "
+              "position du soleil, luminosité, traces de retouche.")
+    f = ask_path()
+    if not f:
+        return
+    try:
+        img, info, gps, cam = read_exif(f)
+    except Exception:
+        log("Ce fichier n'est pas une image lisible.", R)
+        return pause()
+    t = exif_times(f)
+    if not gps and ask_yes("Pas de GPS dans le fichier. Indiquer le lieu annoncé de la photo ?", True):
+        gps = ask_pos("Lieu annoncé")
+    if not t["local"] and not t["gps_utc"] and gps and ask_yes("Pas de date dans le fichier. Indiquer la date et l'heure annoncées ?", True):
+        d = ask_date()
+        hh = ask_text("Heure locale (HH:MM)", "12:00")
+        try:
+            h, mi = map(int, hh.split(":"))
+            t["local"] = datetime.datetime.combine(d, datetime.time(h, mi))
+        except ValueError:
+            pass
+    tz_s = tz_name = None
+    if gps and (t["local"] or t["gps_utc"]):
+        with con.status(f"[{P}]Fuseau horaire du lieu…", spinner="dots12"):
+            tz_s, tz_name = tz_offset(gps[0], gps[1], (t["local"] or t["gps_utc"]).date())
+        if tz_name == "estimé":
+            con.print(f"[{Y}]Fuseau du lieu non récupéré : estimation par la longitude (± 1 à 2 h possibles).")
+        else:
+            try:  # décalage exact à la date de la photo (heure d'été / d'hiver comprise)
+                from zoneinfo import ZoneInfo
+                ref = t["local"] or t["gps_utc"]
+                tz_s = int(ZoneInfo(tz_name).utcoffset(ref).total_seconds())
+            except Exception:
+                pass
+    try:
+        import numpy as np
+        g = np.asarray(img.convert("L").resize((96, 96)), dtype=float)
+        lum = float(g[:32].mean())
+    except Exception:
+        lum = None
+    res = photo_checks(t, gps, tz_s, lum)
+    ico = {"ok": f"[{FIAB_COL['A']}]✔ cohérent", "warn": f"[{FIAB_COL['C']}]⚠ à regarder", "bad": f"[{R}]✖ incohérent", "info": f"[{B}]ℹ info"}
+    tb = Table(title=f"Contrôles · {escape(f.name)}", box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
+    for c in ("Résultat", "Contrôle", "Détail"):
+        tb.add_column(c, overflow="fold")
+    for st, k, v in res:
+        tb.add_row(ico[st], escape(k), escape(v))
+    con.print(tb)
+    nb, nw = sum(1 for r in res if r[0] == "bad"), sum(1 for r in res if r[0] == "warn")
+    verdict = ("incohérences nettes : ne pas se fier aux métadonnées de ce fichier" if nb else "des points à regarder, rien de bloquant" if nw
+               else "aucune incohérence détectée" if any(r[0] == "ok" for r in res) else "pas assez de métadonnées pour conclure")
+    con.print(Panel(f"[{R if nb else Y if nw else G}]{verdict}[/]\n[{M}]Aucune incohérence ne prouve pas que la photo est authentique : des métadonnées bien falsifiées restent cohérentes. "
+                    "Pour une preuve, ajoute Météo passée, Retouche ? et la recherche inversée.", border_style="#00e5ff"))
+    add_report("Cohérence photo", f.name, verdict + "\n" + "\n".join(f"[{st}] {k} : {v}" for st, k, v in res))
+    pause()
+
+
+# ------------------------------------------------------------ ⛰ LIGNE DE VUE AVEC LE RELIEF
+def elevations(pts):
+    """Altitude du sol (m) pour une liste de (lat, lon). Open-Meteo (modèle Copernicus 90 m), sinon OpenTopoData SRTM."""
+    out = []
+    for i in range(0, len(pts), 100):
+        chunk = pts[i:i + 100]
+        try:
+            j = get_json("https://api.open-meteo.com/v1/elevation", 20, params={"latitude": ",".join(f"{a:.5f}" for a, _ in chunk), "longitude": ",".join(f"{b:.5f}" for _, b in chunk)})
+            el = j["elevation"]
+        except Exception:
+            j = get_json("https://api.opentopodata.org/v1/srtm90m", 25, params={"locations": "|".join(f"{a:.5f},{b:.5f}" for a, b in chunk)})
+            el = [r["elevation"] for r in j["results"]]
+        if len(el) != len(chunk):
+            raise RuntimeError("réponse incomplète du service d'altitude")
+        out += [float(e) if e is not None else 0.0 for e in el]
+    return out
+
+
+def los_compute(d_km, elev, obs_h, tgt_h, k=0.13):
+    """Ligne de vue entre le premier et le dernier point d'un profil.
+    d_km : distances depuis l'observateur · elev : altitudes du sol (m) · k : réfraction de l'air (0,13 = standard).
+    Renvoie {visible, marge_m, i_bloc, cache_m (hauteur de la cible masquée), besoin_m (hauteur mini de la cible pour être vue)}."""
+    D = d_km[-1]
+    Reff = 6371.0088 / (1 - k)
+    hA, hB = elev[0] + obs_h, elev[-1] + tgt_h
+    marge, i_bloc, need_top = float("inf"), None, elev[-1]
+    for i in range(1, len(d_km) - 1):
+        d = d_km[i]
+        obst = elev[i] + d * (D - d) / (2 * Reff) * 1000  # sol + bombement de la Terre vu depuis la corde A-B
+        line = hA + (hB - hA) * d / D
+        if line - obst < marge:
+            marge, i_bloc = line - obst, i
+        need_top = max(need_top, hA + (obst - hA) * D / d)
+    cache = max(0.0, need_top - elev[-1])
+    return {"visible": marge > 0, "marge_m": marge, "i_bloc": i_bloc, "cache_m": min(cache, tgt_h) if tgt_h else cache, "besoin_m": cache}
+
+
+def mod_los():
+    con.rule(f"[{G}]⛰ LIGNE DE VUE · avec le relief réel")
+    con.print(f"[{M}]Depuis un point, peut-on vraiment voir un autre point (sommet, tour, immeuble) ? Calcul avec le relief réel, la courbure de la Terre et la réfraction de l'air. "
+              "Sert à confirmer ou éliminer un lieu de prise de vue.")
+    a = ask_pos("Position de l'observateur")
+    b = ask_pos("Position de l'objet observé") if a else None
+    if not (a and b):
+        return pause()
+    oh = ask_num(f"[{G}]Hauteur de l'observateur au-dessus du sol (m)", "1.7")
+    th = ask_num(f"[{G}]Hauteur de l'objet au-dessus du sol (m, 0 = on vise le sol)", "0")
+    km, brg, _ = geodesic(*a, *b)
+    if km < 0.05:
+        log("Les deux points sont au même endroit.", Y)
+        return pause()
+    n = 99 if km > 3 else 49
+    pts = [a] + [geodesic_dest(a[0], a[1], brg, km * i / n) for i in range(1, n)] + [b]
+    dk = [km * i / n for i in range(n + 1)]
+    try:
+        with con.status(f"[{P}]Lecture du relief sur {n + 1} points…", spinner="dots12"):
+            el = elevations(pts)
+    except Exception as e:
+        log(f"Relief indisponible ({e}). Réessaie dans une minute.", R)
+        return pause()
+    r = los_compute(dk, el, oh, th)
+    ib = r["i_bloc"]
+    rows = [("Distance", f"{km:.3f} km · direction {brg:.1f}° ({cardinal(brg)})"), ("Altitude du sol", f"observateur {el[0]:.0f} m · objet {el[-1]:.0f} m"),
+            ("Résultat", Text.from_markup(f"[{FIAB_COL['A']}]VISIBLE[/] · la ligne de vue passe {r['marge_m']:.0f} m au-dessus du relief au point le plus serré" if r["visible"]
+                                          else f"[{R}]MASQUÉ[/] · le relief dépasse la ligne de vue de {-r['marge_m']:.0f} m"))]
+    if ib is not None:
+        rows.append(("Point le plus gênant", f"à {dk[ib]:.2f} km de l'observateur · sol à {el[ib]:.0f} m · {pts[ib][0]:.5f}, {pts[ib][1]:.5f}"))
+    if not r["visible"]:
+        rows.append(("Pour être vu", f"l'objet devrait dépasser {r['besoin_m']:.0f} m de haut à cet endroit" + (f" (il en fait {th:.0f})" if th else "")))
+    elif th:
+        rows.append(("Partie visible de l'objet", f"{th - r['cache_m']:.0f} m sur {th:.0f} m" + (f" (les {r['cache_m']:.0f} m du bas sont masqués)" if r["cache_m"] > 0.5 else " (en entier)")))
+    tight = abs(r["marge_m"]) < 25
+    rows.append(("Fiabilité", Text.from_markup((fiab_tag("C", "marge trop faible pour trancher") if tight else fiab_tag("A", "marge nette"))
+                                               + f"\n[{M}]Relief connu à ± 10 m tous les 90 m. Arbres et bâtiments ne sont pas dans le modèle : ils peuvent masquer une vue « visible ».")))
+    con.print(kv(rows, "⛰ Ligne de vue", G))
+    lo, hi = min(el), max(el)
+    bars = "▁▂▃▄▅▆▇█"
+    step = max(1, len(el) // 60)
+    con.print(f"[{M}]Profil du relief (observateur à gauche) : [{G}]" + "".join(bars[min(7, int((e - lo) / max(hi - lo, 1) * 7.999))] for e in el[::step]) + f"[/]  {lo:.0f} → {hi:.0f} m")
+    add_report("Ligne de vue", f"{a[0]:.5f},{a[1]:.5f} → {b[0]:.5f},{b[1]:.5f}", f"{km:.2f} km · {'VISIBLE' if r['visible'] else 'MASQUÉ'} · marge {r['marge_m']:.0f} m")
+    if ask_yes("Voir sur la carte ?"):
+        mk = [{"lat": a[0], "lon": a[1], "label": "observateur", "c": "#00e5ff"}, {"lat": b[0], "lon": b[1], "label": "objet observé"}]
+        if ib is not None:
+            mk.append({"lat": pts[ib][0], "lon": pts[ib][1], "label": f"point le plus gênant · {el[ib]:.0f} m", "c": "#ff5c7a" if not r["visible"] else "#ffc861", "s": 6})
+        save_open("ligne_de_vue", quick_map(f"Ligne de vue · {'visible' if r['visible'] else 'masqué'}", mk, lines=[[list(p) for p in pts]]))
+    pause()
+
+
+# ------------------------------------------------------------ 📐 RELÈVEMENT : position par recoupement d'azimuts
+def resect(obs, sigma=3.0, n_mc=400, seed=1):
+    """obs : [(lat, lon, azimut)] = repères connus et direction (° depuis le nord) dans laquelle on les voit.
+    Renvoie {lat, lon, r95_m (rayon contenant 95 % des tirages), angle_min (° entre les lignes), behind (repères incohérents)}."""
+    if len(obs) < 2:
+        return None
+    la0 = sum(o[0] for o in obs) / len(obs)
+    lo0 = sum(o[1] for o in obs) / len(obs)
+    kx, ky = 111.320 * math.cos(math.radians(la0)), 110.574  # km par degré, plan local
+    P = [((o[1] - lo0) * kx, (o[0] - la0) * ky) for o in obs]
+
+    def solve(bs):
+        a11 = a12 = a22 = b1 = b2 = 0.0
+        for (px, py), b in zip(P, bs):
+            nx, ny = math.cos(math.radians(b)), -math.sin(math.radians(b))  # normale à la ligne de visée
+            c = nx * px + ny * py
+            a11 += nx * nx
+            a12 += nx * ny
+            a22 += ny * ny
+            b1 += nx * c
+            b2 += ny * c
+        det = a11 * a22 - a12 * a12
+        if abs(det) < 1e-9:
+            return None
+        return (b1 * a22 - b2 * a12) / det, (a11 * b2 - a12 * b1) / det
+    bs = [o[2] for o in obs]
+    X = solve(bs)
+    if X is None:
+        return None
+    behind = [i for i, ((px, py), b) in enumerate(zip(P, bs)) if (px - X[0]) * math.sin(math.radians(b)) + (py - X[1]) * math.cos(math.radians(b)) <= 0]
+    amin = min((min(abs((b1 - b2) % 180), 180 - abs((b1 - b2) % 180)) for i, b1 in enumerate(bs) for b2 in bs[i + 1:]), default=0)
+    rnd = random.Random(seed)
+    ds = []
+    for _ in range(n_mc):
+        Y_ = solve([b + rnd.gauss(0, sigma) for b in bs])
+        if Y_:
+            ds.append(math.hypot(Y_[0] - X[0], Y_[1] - X[1]))
+    ds.sort()
+    r95 = ds[int(len(ds) * 0.95) - 1] * 1000 if ds else float("inf")
+    return {"lat": la0 + X[1] / ky, "lon": lo0 + X[0] / kx, "r95_m": r95, "angle_min": amin, "behind": behind}
+
+
+def mod_resect():
+    con.rule(f"[{G}]📐 RELÈVEMENT · où était le photographe ?")
+    con.print(f"[{M}]Tu connais 2 à 4 repères visibles (clocher, tour, sommet) et la direction dans laquelle chacun est vu (boussole, direction EXIF, alignement sur la carte). "
+              "L'outil calcule la position de l'observateur et sa marge d'erreur.")
+    obs, names = [], []
+    while len(obs) < 4:
+        p = ask_pos(f"Repère n°{len(obs) + 1}" + (" (Entrée vide pour terminer)" if len(obs) >= 2 else ""))
+        if not p:
+            if len(obs) >= 2:
+                break
+            return pause()
+        az = ask_num(f"[{G}]Direction dans laquelle ce repère est vu (0 = nord, 90 = est…)", "0") % 360
+        obs.append((p[0], p[1], az))
+        names.append(f"repère {len(obs)}")
+        if len(obs) >= 2 and not ask_yes("Ajouter un autre repère ? (3 repères = position vérifiée)", len(obs) < 3):
+            break
+    sig = ask_num(f"[{G}]Précision de tes directions en degrés (boussole de téléphone ≈ 5, mesure sur carte ≈ 2)", "3")
+    r = resect(obs, max(sig, 0.1))
+    if not r:
+        log("Les directions sont parallèles : pas de point de croisement. Choisis des repères dans des directions différentes.", R)
+        return pause()
+    warn = []
+    if r["behind"]:
+        warn.append("le croisement se trouve du mauvais côté de " + ", ".join(names[i] for i in r["behind"]) + " : une direction est sans doute inversée (ajoute ou retire 180°)")
+    if r["angle_min"] < 20:
+        warn.append(f"deux lignes se croisent à seulement {r['angle_min']:.0f}° : position très sensible à la moindre erreur, prends un repère plus écarté")
+    if len(obs) == 2:
+        warn.append("2 repères donnent un point mais ne le contrôlent pas : un 3ᵉ repère confirmerait")
+    lvl = "C" if warn or r["r95_m"] > 500 else "B" if len(obs) == 2 else "A"
+    con.print(coords_panel(r["lat"], r["lon"], "📐 Position calculée"))
+    con.print(kv([("Marge d'erreur", f"± {fmt_dist(r['r95_m'])} (95 % des cas, pour des directions justes à ± {sig:g}°)"), ("Angle entre les lignes", f"{r['angle_min']:.0f}° (idéal : 60 à 120°)"),
+                  ("Fiabilité", Text.from_markup(fiab_tag(lvl))), ("Attention", "\n".join(warn) or None)], "Précision", G))
+    LAST["pos"] = (r["lat"], r["lon"])
+    add_report("Relèvement", f"{len(obs)} repères", f"Position {r['lat']:.6f}, {r['lon']:.6f} · ± {fmt_dist(r['r95_m'])} · {FIAB[lvl]}" + (" · " + " ; ".join(warn) if warn else ""))
+    if ask_yes("Voir sur la carte ?", True):
+        mk = [{"lat": r["lat"], "lon": r["lon"], "label": f"<b>position calculée</b><br>± {fmt_dist(r['r95_m'])}", "c": "#00e5ff", "s": 9}]
+        mk += [{"lat": o[0], "lon": o[1], "label": f"{n} · vu au {o[2]:.0f}°"} for o, n in zip(obs, names)]
+        save_open("relevement", quick_map("Relèvement", mk, circles=[{"lat": r["lat"], "lon": r["lon"], "r": min(r["r95_m"], 200000)}],
+                                          lines=[[[o[0], o[1]], list(geodesic_dest(o[0], o[1], (o[2] + 180) % 360, max(geodesic(o[0], o[1], r["lat"], r["lon"])[0] * 1.3, 0.2)))] for o in obs]))
+    pause()
+
+
+# ------------------------------------------------------------ 🧪 DNS RECOUPÉ (3 résolveurs indépendants)
+DOH = [("Google", "https://dns.google/resolve", {}), ("Cloudflare", "https://cloudflare-dns.com/dns-query", {"accept": "application/dns-json"}),
+       ("Quad9", "https://dns.quad9.net:5053/dns-query", {"accept": "application/dns-json"})]
+
+
+def doh(name, typ, i=0):
+    """Réponse d'un résolveur : (ensemble des valeurs, DNSSEC validé ?) ou None s'il n'a pas répondu."""
+    n, url, h = DOH[i]
+    try:
+        j = get_json(url, 8, params={"name": name, "type": typ}, headers=h)
+    except Exception:
+        return None
+    vals = set()
+    for a in j.get("Answer", []) or []:
+        if a.get("type") == TT[typ]:
+            d = a["data"]
+            vals.add(re.sub(r'"\s*"', "", d.strip('"')) if typ == "TXT" else d.rstrip(".").lower())
+    return vals, bool(j.get("AD"))
+
+
+def dns_agree(answers):
+    """answers : {résolveur: ensemble ou None}. Renvoie (état, valeurs communes, valeurs vues par certains seulement)."""
+    ok = {k: v for k, v in answers.items() if v is not None}
+    if not ok:
+        return "aucune réponse", set(), set()
+    sets = list(ok.values())
+    common, union = set.intersection(*sets), set.union(*sets)
+    if len(ok) < 2:
+        return "1 seul résolveur a répondu : non recoupé", common, set()
+    if common == union:
+        return f"identique sur {len(ok)} résolveurs", common, set()
+    return ("réponses différentes selon le résolveur", common, union - common)
+
+
+def mod_dnscheck():
+    con.rule(f"[{G}]🧪 DNS RECOUPÉ · 3 résolveurs indépendants")
+    con.print(f"[{M}]Pose la même question à Google, Cloudflare et Quad9. Si les trois répondent pareil, l'information est sûre. "
+              "Sinon l'outil dit ce qui diffère (répartition de charge normale, ou réponse trafiquée).")
+    d = _dom(ask_text("Domaine (ex : exemple.fr)"))
+    if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", d):
+        log("Domaine invalide.", Y)
+        return pause()
+    types = ["A", "AAAA", "MX", "NS", "TXT", "CAA"]
+    jobs = [(t, i) for t in types for i in range(len(DOH))]
+    with con.status(f"[{P}]{len(jobs)} requêtes DNS…", spinner="dots12"):
+        with _TPE(12) as ex:
+            res = dict(zip(jobs, ex.map(lambda j: doh(d, j[0], j[1]), jobs)))
+    tb = Table(title=f"DNS de {d}", box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
+    for c in ("Type", "Accord", "Valeurs confirmées", "Vues par certains seulement"):
+        tb.add_column(c, overflow="fold")
+    lines, sec = [], False
+    for t in types:
+        ans = {DOH[i][0]: (res[(t, i)][0] if res[(t, i)] else None) for i in range(len(DOH))}
+        sec = sec or any(res[(t, i)] and res[(t, i)][1] for i in range(len(DOH)))
+        st, common, part = dns_agree(ans)
+        if not common and not part:
+            continue
+        lv = "A" if st.startswith("identique") else "B" if common else "C"
+        note = ""
+        if part and t in ("A", "AAAA"):
+            note = "\n(courant avec un CDN : chaque résolveur reçoit un serveur proche de lui)"
+        tb.add_row(t, f"[{FIAB_COL[lv]}]{st}", escape("\n".join(sorted(common)[:12])) or "—", escape("\n".join(sorted(part)[:12])) + note)
+        lines.append(f"{t} : {st} · {', '.join(sorted(common)[:6])}" + (f" · variables : {', '.join(sorted(part)[:6])}" if part else ""))
+    if not lines:
+        log("Aucun enregistrement : le domaine n'existe pas, ou les résolveurs sont injoignables depuis ta connexion.", Y)
+        return pause()
+    con.print(tb)
+    con.print(f"[{M}]DNSSEC : " + (f"[{FIAB_COL['A']}]réponses signées et validées (impossible à falsifier en route)" if sec else "non signé (cas le plus courant) : la fiabilité repose sur l'accord des 3 résolveurs"))
+    root = gnode("domaine", d)
+    for t in ("A", "AAAA"):
+        ans = [res[(t, i)][0] for i in range(len(DOH)) if res[(t, i)]]
+        for ip in sorted(set.intersection(*ans)) if ans else []:
+            gnode("ip", ip, None, root, t, fiab="A", src=f"DNS identique sur {len(ans)} résolveurs indépendants")
+    gsave()
+    add_report("DNS recoupé", d, "\n".join(lines))
+    pause()
+
+
+# ------------------------------------------------------------ 📊 BILAN DE FIABILITÉ DU DOSSIER
+FIAB_TODO = {"lieu": "ouvre le point dans Street View / la vue satellite, ou lance Ligne de vue et Relèvement",
+             "pseudo": "lance « Même personne ? » entre ce pseudo et un compte déjà établi",
+             "email": "cherche l'adresse dans Email → comptes et compare les profils trouvés",
+             "compte": "ouvre le profil : photo, bio et liens doivent recouper un compte déjà établi (outil « Même personne ? »)",
+             "fuite": "vérifie la fuite sur haveibeenpwned.com avec l'adresse exacte",
+             "domaine": "lance DNS recoupé sur ce domaine", "ip": "lance IP lookup : le recoupement des 4 bases dit si le pays est sûr"}
+
+
+def fiab_summary(g):
+    """Compte les entités du graphe par niveau. Renvoie ({A,B,C,?: [(id, nœud)]}, nombre total hors racine)."""
+    by = {"A": [], "B": [], "C": [], "?": []}
+    for nid, n in g["nodes"].items():
+        if n.get("type") == "enquete":
+            continue
+        d = n.get("data") or {}
+        if d.get("_statut") == "faux":
+            continue
+        k = "A" if d.get("_statut") == "ok" and d.get("_statut_user") else d.get("_fiab") or "?"
+        by[k].append((nid, n))
+    return by, sum(len(v) for v in by.values())
+
+
+def mod_fiab():
+    con.rule(f"[{G}]📊 BILAN DE FIABILITÉ DU DOSSIER")
+    g = gload()
+    by, tot = fiab_summary(g)
+    if not tot:
+        log("Le dossier est vide : lance d'abord des recherches (elles remplissent le graphe d'enquête).", Y)
+        return pause()
+    pct = lambda k: f"{len(by[k])} ({len(by[k]) * 100 // tot} %)"
+    con.print(kv([("Dossier", gname().replace("_", " ")), ("Éléments", str(tot)),
+                  ("A · " + FIAB["A"], Text(pct("A"), style=FIAB_COL["A"])), ("B · " + FIAB["B"], Text(pct("B"), style=FIAB_COL["B"])),
+                  ("C · " + FIAB["C"], Text(pct("C"), style=FIAB_COL["C"])), ("Sans niveau (ajoutés à la main ou avant la v6.4)", pct("?")),
+                  ("Lecture", "Un rapport ne devrait affirmer que les éléments A. Les B se présentent comme « un compte existe », les C comme des pistes.")],
+                 "📊 Fiabilité", G))
+    todo = by["C"] + by["B"]
+    if todo:
+        rows = [(n["label"][:60], GTYPES.get(n["type"], GTYPES["autre"])[1], (n.get("data") or {}).get("_fiab", "?"),
+                 FIAB_TODO.get(n["type"], "cherche une 2ᵉ source indépendante qui dit la même chose"), str((n.get("data") or {}).get("source", ""))[:120]) for _, n in todo]
+        table_pages("À CONSOLIDER (les estimations d'abord)", ["Élément", "Type", "Niveau", "Comment le vérifier", "D'où ça vient"], rows)
+    add_report("mod_fiab", "Bilan de fiabilité", f"{tot} éléments · A {pct('A')} · B {pct('B')} · C {pct('C')} · sans niveau {pct('?')}")
+    pause()
+
+
+TUTOS.update({
+"mod_sameperson": """### 🎯 À quoi ça sert
+Dire si deux comptes appartiennent **à la même personne**, avec des preuves et pas seulement un pseudo identique.
+### 🧰 Ce qu'il te faut
+Un ou deux **pseudos**.
+### ▶ Étapes
+1. Donne le premier pseudo, puis le second (ou Entrée pour comparer les comptes d'un même pseudo).
+2. Lis le tableau : chaque paire de profils a un **score** et la liste des **preuves**.
+### 🔎 Comment lire
+- **Lien déclaré** ou **même email** : preuve, le titulaire l'a écrit lui-même.
+- **Même photo**, **même nom**, **même site** : indices, il en faut plusieurs.
+- Score faible : rien n'est prouvé, ni dans un sens ni dans l'autre.""",
+"mod_photocheck": """### 🎯 À quoi ça sert
+Vérifier que **la date, l'heure et le lieu** d'une photo tiennent debout entre eux.
+### 🧰 Ce qu'il te faut
+Le **fichier original** de la photo (pas une capture d'écran).
+### ▶ Étapes
+1. Glisse la photo.
+2. Sans GPS ou sans date, indique le lieu et l'heure **annoncés** : l'outil calcule où devait être le soleil.
+### 🔎 Comment lire
+- **✔ cohérent** : les informations vont ensemble.
+- **✖ incohérent** : une des informations est fausse ou modifiée.
+- L'ombre attendue (longueur et direction) est donnée : compare-la à la photo.""",
+"mod_los": """### 🎯 À quoi ça sert
+Savoir si, depuis un point, on **voit vraiment** un sommet, une tour ou un immeuble. Élimine les faux lieux de prise de vue.
+### 🧰 Ce qu'il te faut
+Deux **positions** et les **hauteurs** (observateur, objet).
+### 🔎 Comment lire
+- **VISIBLE** avec une marge nette : fiable. Marge de moins de 25 m : ne tranche pas.
+- Les arbres et les bâtiments ne sont pas dans le modèle de relief.""",
+"mod_resect": """### 🎯 À quoi ça sert
+Retrouver **où se tenait le photographe** à partir de repères visibles et de leur direction.
+### 🧰 Ce qu'il te faut
+2 à 4 **repères** identifiés sur la carte et la **direction** (en degrés) dans laquelle chacun est vu.
+### 🔎 Comment lire
+- La **marge d'erreur** dépend de la précision de tes directions et de l'angle entre les lignes (idéal : 60 à 120°).
+- **3 repères** qui se croisent au même endroit = position vérifiée.""",
+"mod_dnscheck": """### 🎯 À quoi ça sert
+Confirmer les enregistrements DNS d'un domaine en interrogeant **3 résolveurs indépendants**.
+### 🔎 Comment lire
+- **Identique sur 3 résolveurs** : information sûre.
+- **Différent** sur les adresses A : normal avec un CDN. Sur MX, NS ou TXT : à regarder de près.""",
+"mod_fiab": """### 🎯 À quoi ça sert
+Faire le point sur ton dossier : ce qui est **prouvé**, ce qui **existe sans être relié**, ce qui n'est qu'une **piste**.
+### 🔎 Comment lire
+- **A** : tu peux l'affirmer. **B** : « un compte existe ». **C** : piste à vérifier.
+- La liste « à consolider » dit, pour chaque élément, **comment** le vérifier.""",
+})
+
+
 SECTIONS = [
     ("RECON IDENTITÉ", [
         ("mod_social", "👥 Lookup réseaux sociaux", "17 plateformes · fiches", "Fiche détaillée d'un pseudo sur GitHub (emails des commits, clés SSH), Reddit (heures d'activité → fuseau), TikTok, Instagram, YouTube, Bluesky, Mastodon, Telegram, Steam, Roblox, Chess.com, Lichess, GitLab, Hacker News, Keybase, Linktree, Docker Hub.\n\nInspiré de Sherlock / Maigret / Osintgram. Une fiche par page (n / p)."),
         ("mod_wmn", "🌐 Pseudo sur 600+ sites", "WhatsMyName", "Teste un pseudo sur plus de 600 sites avec la base WhatsMyName (celle utilisée par les pros de l'OSINT), mise à jour automatiquement.\n\nRésultats par pages + page HTML cliquable."),
         ("mod_person", "🧍 Recherche de personne", "emails · pseudos · annuaires", "Prénom + nom → adresses email probables (testées via Gravatar), pseudos probables, et toutes les recherches prêtes : LinkedIn, Facebook, Pages Blanches, Copains d'avant, dirigeants d'entreprise, PDF…"),
+        ("mod_sameperson", "🧬 Même personne ?", "recoupement de profils", "Deux comptes appartiennent-ils à la même personne ? Cherche des preuves : lien d'un profil vers l'autre, même email, même photo de profil, même nom, même site. Donne un score et la liste des preuves."),
         ("mod_discord", "💬 Discord lookup", "invitation · ID · widget", "Analyse une invitation Discord (serveur, ID, membres, créateur de l'invitation), la date de n'importe quel ID, un compte (avec token) ou les membres en ligne d'un serveur."),
         ("mod_user", "👤 Pseudos", "95 sites", "Teste un pseudo sur 95 sites (réseaux, jeux, dev, créa…) en parallèle, avec ses variantes (_ . -).\n\nTu donnes : un pseudo.\nTu obtiens : la liste des comptes trouvés, un niveau d'exposition et une checklist IA."),
         ("mod_prevname", "⏳ Prevname", "anciens pseudos", "Retrouve les anciens pseudos d'un compte : Steam, Roblox, Minecraft, X, GitHub, Bluesky (historique complet), Discord (ID), 36 sites qui redirigent les anciens noms et 57 plateformes dans les archives web."),
@@ -10405,6 +11028,7 @@ SECTIONS = [
         ("mod_img2gps", "📌 Image → coordonnées", "GPS · IA locale", "Tu donnes une image (fichier ou lien), l'outil sort directement ses coordonnées : GPS caché dans le fichier, sinon estimation par l'IA locale GeoCLIP (top 5) et l'IA de vision, avec adresse, formats DMS/UTM et carte."),
         ("mod_revimg", "🔎 Recherche inversée d'image", "Lens · Yandex · TinEye · Bing", "Retrouve où une image apparaît sur internet (original, première publication, copies) sur 6 moteurs à la fois : Google Lens, Yandex, TinEye, Bing, SauceNAO, Baidu."),
         ("mod_geo", "📍 Géoloc photo", "100 % auto par l'IA", "Trouve où une photo a été prise et où se tenait le photographe : GPS caché → IA GeoCLIP → IA de vision qui repère les monuments → triangulation → heure par les ombres.\n\nTu donnes juste la photo."),
+        ("mod_photocheck", "🕵 Cohérence d'une photo", "date · heure · lieu · soleil", "Vérifie que les informations d'une photo tiennent debout entre elles : heure de l'appareil, heure GPS, fuseau du lieu, position du soleil, luminosité, traces de retouche. Donne aussi l'ombre attendue pour la comparer à l'image."),
         ("mod_vidinfo", "📼 Vidéo en ligne : date", "YouTube · TikTok · miniatures", "Date exacte de mise en ligne d'une vidéo YouTube / Shorts / TikTok, chaîne, vues, mots-clés cachés, et miniatures prêtes pour la recherche inversée (comme InVID / YouTube DataViewer) : démasque les vieilles vidéos republiées."),
         ("mod_video", "🎬 Vidéo → images", "images + GPS caché", "Découpe une vidéo en images (planche contact) pour la géoloc ou la recherche de logo, et lit ses métadonnées cachées : date, téléphone, position GPS des vidéos iPhone/Android."),
         ("mod_logo", "🔖 Recherche de logo", "marque · image inversée", "Identifie une marque à partir d'un logo (IA locale), donne sa fiche, lance la recherche inversée (Google Lens, Bing, TinEye) et calcule le hash favicon Shodan d'un site."),
@@ -10416,12 +11040,15 @@ SECTIONS = [
         ("mod_place", "🌍 Infos d'un lieu", "adresse · UTM · 12 cartes", "Toutes les infos d'un point : adresse, coordonnées dans tous les formats, altitude, et 12 cartes (Street View, Earth 3D, Mapillary, satellite…)."),
         ("mod_satellite", "📡 Satellite d'avant", "historique depuis 2014", "Compare les images satellite d'un lieu sur ~200 dates depuis 2014 : constructions, démolitions, travaux, véhicules garés…"),
         ("mod_bearing", "📏 Distance · horizon", "azimut · visibilité", "Distance et direction entre 2 points, point à X km dans une direction, distance de l'horizon, et si un sommet ou une tour est visible malgré la courbure de la Terre."),
+        ("mod_los", "⛰ Ligne de vue", "relief réel · visible ou masqué", "Depuis un point, voit-on vraiment un sommet, une tour, un immeuble ? Calcul avec le relief réel, la courbure de la Terre et la réfraction. Confirme ou élimine un lieu de prise de vue."),
+        ("mod_resect", "📐 Relèvement", "position par azimuts", "Retrouve où se tenait le photographe à partir de 2 à 4 repères visibles et de leur direction, avec la marge d'erreur calculée."),
         ("mod_clues", "🧩 Recherche par indices", "trouver le lieu sur la carte", "Combine des indices vus sur une photo (église + pharmacie + arrêt de bus…) pour trouver tous les endroits d'une zone où ils sont proches."),
         ("mod_planes", "🛫 Avions", "ADS-B en direct", "Avions en vol autour d'un point, en direct (dont les vols militaires visibles), avec carte."),
     ]),
     ("INFRA / WEB", [
         ("mod_iplookup", "🧭 IP lookup", "géo · VPN · Tor · ports", "Tout sur une IP ou un domaine : pays, ville, opérateur, ASN, reverse DNS, détection VPN / proxy / datacenter / Tor, ports ouverts et failles (Shodan InternetDB), autres sites sur la même IP, contact abus, carte.\n\n7 sources interrogées en même temps."),
         ("mod_domain", "🔭 Domaine / IP", "DNS · SSL · ports · CVE", "Audit d'un domaine ou d'une IP : DNS, sous-domaines, certificat, ports ouverts, failles connues, technologies, en-têtes de sécurité, rapport IA."),
+        ("mod_dnscheck", "🧪 DNS recoupé", "3 résolveurs · DNSSEC", "Pose la même question DNS à Google, Cloudflare et Quad9 et compare : une réponse identique sur les trois est sûre, une différence est signalée et expliquée."),
         ("mod_harvest", "🌾 Récolte d'un domaine", "façon theHarvester", "Sous-domaines, emails, serveurs mail et personnes (Hunter) d'un domaine, depuis les certificats SSL, HackerTarget, CertSpotter et les pages du site."),
         ("mod_urlscan", "📸 URLScan.io", "capture · IP · verdict", "Voir un site sans le visiter : historique des scans publics, nouveau scan avec capture d'écran, IP, serveur, domaines contactés et verdict."),
         ("mod_wayurls", "🗃 Fichiers archivés", "Wayback · PDF · sauvegardes", "Liste les fichiers et pages d'un domaine gardés par la Wayback Machine : documents, sauvegardes oubliées, pages supprimées. Export CSV."),
@@ -10452,6 +11079,7 @@ SECTIONS = [
     ("CAT.EXE", [
         ("mod_challenges", "🎯 Challenges", "facile · moyen · difficile", "11 challenges OSINT à résoudre avec l'outil. Bonne réponse = flag à poster sur le Discord pour le classement."),
         ("mod_graph", "🧬 Graphe d'enquête", "façon Obsidian · fenêtre", "Une fenêtre à part qui dessine ton enquête en toile : pseudos, comptes, emails, IP, lieux… reliés entre eux.\n\nChaque module que tu lances l'alimente tout seul, en direct. Tu peux ajouter des éléments, les relier, mettre des notes, chercher, filtrer par type et exporter en image.\n\nInspiré d'Obsidian et Maltego."),
+        ("mod_fiab", "📊 Bilan de fiabilité", "prouvé · à confirmer · piste", "Fait le point sur le dossier en cours : combien d'éléments sont vérifiés à la source, combien existent sans être reliés, combien ne sont que des pistes, et comment vérifier chacun."),
         ("mod_autoscan", "⚡ Scan auto", "façon SpiderFoot", "Donne une cible (pseudo, email, domaine, IP, nom…) : l'outil lance toutes les recherches possibles, puis recommence sur ce qu'il trouve, et remplit le graphe tout seul."),
         ("mod_report", "📄 Rapport", "PDF · HTML", "Tout ce que tu as trouvé pendant la session, avec synthèse IA, en PDF (lisible sur iPhone) ou en page web."),
         ("mod_settings", "🔧 Réglages", "langue · IA locale · animations", "Langue, modèles d'IA locale (Ollama), animations, token Discord, dossier des résultats."),
@@ -10461,7 +11089,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",

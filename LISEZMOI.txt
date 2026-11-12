@@ -1,4 +1,4 @@
-CAT.EXE // OSINT · GEOINT TOOL v6.4
+CAT.EXE // OSINT · GEOINT TOOL v6.5
 
 PYTHON : 3.14 minimum. LANCER.bat l'installe tout seul s'il manque (winget), sans toucher aux anciennes versions.
 
@@ -24,6 +24,18 @@ NOUVEAU EN v4
 - En-tetes d'email (phishing) · Extracteur d'indices · Archives d'une page · Reseau (IP, ASN, MAC)
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
+
+NOUVEAU EN v6.5 : 6 OUTILS DE PRÉCISION
+---------------------------------------
+- Même personne ? : compare les profils de un ou deux pseudos et cherche des preuves (lien d'un profil vers l'autre,
+  même email, même photo, même nom, même site). Score + liste des preuves. C'est l'outil qui fait passer un compte
+  du niveau B au niveau A.
+- Cohérence d'une photo : heure de l'appareil, heure GPS, fuseau du lieu, position du soleil, luminosité, retouche.
+  Donne l'ombre attendue (longueur, direction) pour la comparer à l'image.
+- Ligne de vue : depuis un point, voit-on vraiment un sommet ou une tour ? Relief réel + courbure de la Terre.
+- Relèvement : position du photographe à partir de 2 à 4 repères et de leur direction, avec la marge d'erreur.
+- DNS recoupé : la même question posée à Google, Cloudflare et Quad9, avec l'état DNSSEC.
+- Bilan de fiabilité : ce qui est prouvé, ce qui reste à relier, ce qui n'est qu'une piste, et comment le vérifier.
 
 NOUVEAU EN v6.4 : FIABILITÉ
 ---------------------------

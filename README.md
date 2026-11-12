@@ -10,7 +10,7 @@ Outil OSINT et GEOINT en ligne de commande (Python 3.14, Rich). Il regroupe des 
 ## Ce que fait le code, et vers où il envoie
 Chaque module interroge des services publics. Liste principale :
 - **E-mail** : vérification MX/SPF/DMARC, fuites (XposedOrNot), comptes (Holehe reproduit en interne, sur une liste de sites).
-- **IP / domaine** : ipwho.is, ip-api.com, ipinfo.io, freeipapi.com, RIPEstat, crt.sh, HackerTarget, CertSpotter, urlscan.io, web.archive.org.
+- **IP / domaine** : ipwho.is, ip-api.com, ipinfo.io, freeipapi.com, RIPEstat, DNS chiffré (Google, Cloudflare, Quad9), Open-Meteo (relief, fuseaux), crt.sh, HackerTarget, CertSpotter, urlscan.io, web.archive.org.
 - **Banque / véhicule / appareil** : openiban.com (IBAN), NHTSA vPIC (VIN), macvendors.com (MAC).
 - **Entreprises** : BODACC (OpenDataSoft).
 - **Anonymat** : passe par Tor (ports 9050/9150) si Tor est installé ; sinon le module le signale.
@@ -26,6 +26,8 @@ Chaque résultat indique sa source et son niveau :
 
 Les recherches de comptes (pseudo, email) passent un test de contrôle avec un identifiant inexistant : un site qui répond « trouvé » à tout est écarté.
 Les calculs géographiques (distance, azimut, soleil) sont exacts : ellipsoïde WGS84 et algorithme NOAA.
+
+Outils dédiés à la vérification : **Même personne ?** (recoupement de profils), **Cohérence d'une photo**, **Ligne de vue** (relief réel), **Relèvement** (position par azimuts), **DNS recoupé** (3 résolveurs), **Bilan de fiabilité** du dossier.
 
 ## Installation
 ```
