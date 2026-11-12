@@ -1,4 +1,4 @@
-CAT.EXE // OSINT · GEOINT TOOL v6.5
+CAT.EXE // OSINT · GEOINT
 
 PYTHON : 3.14 minimum. LANCER.bat l'installe tout seul s'il manque (winget), sans toucher aux anciennes versions.
 
@@ -25,7 +25,7 @@ NOUVEAU EN v4
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
-NOUVEAU EN v6.5 : 6 OUTILS DE PRÉCISION
+NOUVEAU : 6 OUTILS DE PRÉCISION
 ---------------------------------------
 - Même personne ? : compare les profils de un ou deux pseudos et cherche des preuves (lien d'un profil vers l'autre,
   même email, même photo, même nom, même site). Score + liste des preuves. C'est l'outil qui fait passer un compte
@@ -37,7 +37,7 @@ NOUVEAU EN v6.5 : 6 OUTILS DE PRÉCISION
 - DNS recoupé : la même question posée à Google, Cloudflare et Quad9, avec l'état DNSSEC.
 - Bilan de fiabilité : ce qui est prouvé, ce qui reste à relier, ce qui n'est qu'une piste, et comment le vérifier.
 
-NOUVEAU EN v6.4 : FIABILITÉ
+NOUVEAU : FIABILITÉ
 ---------------------------
 Chaque résultat dit maintenant d'où il vient et à quel point il est sûr.
 - 3 niveaux affichés partout (résultats, graphe, rapport) :
@@ -57,7 +57,7 @@ Chaque résultat dit maintenant d'où il vient et à quel point il est sûr.
 Limite à connaître : l'outil prouve qu'un compte ou une adresse EXISTE. Savoir à QUI il appartient demande toujours
 un recoupement (photo, bio, liens) : c'est le niveau B.
 
-NOUVEAU EN v6.3
+NOUVEAU : annonces légales, IBAN, VIN, MAC, archives Wayback
 ---------------
 - 5 outils : Annonces légales (BODACC), IBAN (contre les faux RIB), Véhicule (VIN), Adresse MAC → fabricant,
   Fichiers archivés d'un domaine (Wayback Machine, export CSV).
@@ -67,7 +67,7 @@ NOUVEAU EN v6.3
 - Graphe : halos lumineux par type, liens colorés et courbes, anneau animé sur les pistes clés,
   ondes pendant une recherche, étiquettes sur fond, filtres animés.
 
-NOUVEAU EN v6.2
+NOUVEAU : design sobre, email complet, graphe façon enquête
 ---------------
 - Design plus sobre : thème « Graphite » par défaut (gris / ambre), emojis retirés de l'affichage
   (Réglages → Style pour les remettre), le thème néon d'avant s'appelle « Cyber ».
@@ -79,7 +79,7 @@ NOUVEAU EN v6.2
   Fausse piste, pistes clés, journal horodaté, menu clic droit complet, filtres par type,
   rapport d'enquête imprimable (PDF), export PNG / JSON / CSV.
 
-NOUVEAU EN v6.1
+NOUVEAU : anonymat Tor, recherche inversée, webcams, email → comptes
 ---------------
 - 🧅 Anonymat : test d'exposition (IP réelle / IP via Tor), changer d'IP (nouveau circuit Tor),
   ouverture de Tor Browser (ou Firefox sur Tor), tests de fuites WebRTC / DNS.
@@ -93,7 +93,7 @@ NOUVEAU EN v6.1
 - 🗂 Sources pro : Censys, Hunter, Epieos, IntelX, DeHashed, SecurityTrails, GreyNoise, OSINT Framework…
 Clés API facultatives (Windy, Hunter, urlscan) : demandées une fois, gardées dans config.json.
 
-NOUVEAU EN v6.0
+NOUVEAU : animation de démarrage, thèmes, graphe façon Maltego
 - Animation de demarrage : journal de boot facon hacker, puis le logo CAT.EXE se decrypte petit a petit (glitch inclus).
 - 14 themes de couleurs (Reglages > Theme) : Cyber, Matrix, Synthwave, Blood, Ocean, Gold, Ice, Dracula, Toxic,
   Sakura, Amber, Mono, Sunset, Aurora. Apercu en direct, applique au terminal, aux cartes et au graphe.
@@ -105,19 +105,19 @@ NOUVEAU EN v6.0
   Lot de photos -> trajet + chronologie, Comparer deux images, Video en ligne : date exacte + miniatures (YouTube, TikTok),
   Fuites d'un site (Have I Been Pwned).
 
-NOUVEAU EN v5.2
+NOUVEAU : tutos par module
 - Un TUTO pour chaque module : a quoi il sert, ce qu'il te faut, comment recuperer l'info
   (photo originale avec GPS, en-tetes d'email, ID Discord, adresse IP…), etapes et astuces.
   Il s'affiche a la 1re ouverture du module, puis a tout moment avec la touche ? dans le menu.
   (Reglages > Reafficher les tutos pour les revoir automatiquement.)
 
-NOUVEAU EN v5.1
+NOUVEAU : mise à jour 5.1
 - Graphe d'enquete (facon Obsidian / Maltego) : fenetre a part qui dessine ton enquete en toile
   (pseudos, comptes, emails, IP, lieux…). Chaque module l'alimente tout seul, en direct.
   Ajouter / relier des elements, notes, recherche, filtres par type, export en image.
   Plusieurs enquetes possibles (dossier resultats/enquetes).
 
-NOUVEAU EN v5
+NOUVEAU : version 5
 - Nouveau design (palette cyan / violet) et menus par pages (n / p)
 - Image -> coordonnees : GPS cache, sinon estimation par l'IA locale (GeoCLIP + vision), carte
 - IP lookup : pays, ville, operateur, ASN, VPN / proxy / Tor, ports et failles, sites sur la meme IP

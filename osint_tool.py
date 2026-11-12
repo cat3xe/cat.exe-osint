@@ -47,7 +47,7 @@ try:
 except ImportError:
     phonenumbers = None
 
-VERSION = "6.5"
+VERSION = ""
 DISCORD = "https://discord.gg/RWYAPZ8Qbp"
 DINFO = {}
 
@@ -4762,7 +4762,7 @@ def boot():
             anim_bootlog()
             con.clear()
             anim_reveal()
-            type_cursor(f"  // OSINT · GEOINT TOOL v{VERSION} · recon · géoloc · graphe · IA locale")
+            type_cursor(f"  // OSINT · GEOINT TOOL · recon · géoloc · graphe · IA locale")
             anim_loadbar()
         except KeyboardInterrupt:
             con.clear()
@@ -5886,7 +5886,7 @@ def report_pdf(syn, path):
             self.set_y(-12)
             self.set_font(F, "", 8)
             self.set_text_color(125, 143, 155)
-            self.cell(0, 6, clean(f"Cat.exe OSINT v{VERSION} · {DISCORD[8:]} · page {self.page_no()}"), align="C")
+            self.cell(0, 6, clean(f"Cat.exe OSINT · {DISCORD[8:]} · page {self.page_no()}"), align="C")
 
     pdf = PDF(format="A4")
     if fonts:
@@ -7960,7 +7960,7 @@ def mod_toolbox():
         pause()
 
 
-# ============================================================ v6 : OUTILS OSINT / GEOINT SUPPLÉMENTAIRES
+# ============================================================ OUTILS OSINT / GEOINT SUPPLÉMENTAIRES
 from urllib.parse import unquote
 
 
@@ -9148,7 +9148,7 @@ def mod_anon():
             pause()
 
 
-# ============================================================ v6.1 : OUTILS OSINT CONNUS
+# ============================================================ OUTILS OSINT CONNUS
 from urllib.parse import quote as _q
 
 
@@ -9647,7 +9647,7 @@ def mod_prosrc():
     pause()
 
 
-# ============================================================ v6.3 : BODACC, IBAN, VIN, MAC, URLs archivées
+# ============================================================ BODACC, IBAN, VIN, MAC, URLs archivées
 def mod_bodacc():
     con.rule(f"[{G}]📰 ANNONCES LÉGALES (BODACC)")
     q = ask_text("Nom d'entreprise, de dirigeant, ou SIREN").strip()
@@ -10379,7 +10379,7 @@ def tuto_gate(fn, name):
     return c == "go"
 
 
-# ============================================================ v6.5 : OUTILS DE PRÉCISION (recouper, mesurer, prouver)
+# ============================================================ OUTILS DE PRÉCISION (recouper, mesurer, prouver)
 # ------------------------------------------------------------ 🧬 MÊME PERSONNE ? (recoupement de profils)
 def _norm_name(s):
     return re.sub(r"[^a-z0-9 ]", "", _strip_acc(str(s or ""))).strip()
@@ -10939,7 +10939,7 @@ def mod_fiab():
     pct = lambda k: f"{len(by[k])} ({len(by[k]) * 100 // tot} %)"
     con.print(kv([("Dossier", gname().replace("_", " ")), ("Éléments", str(tot)),
                   ("A · " + FIAB["A"], Text(pct("A"), style=FIAB_COL["A"])), ("B · " + FIAB["B"], Text(pct("B"), style=FIAB_COL["B"])),
-                  ("C · " + FIAB["C"], Text(pct("C"), style=FIAB_COL["C"])), ("Sans niveau (ajoutés à la main ou avant la v6.4)", pct("?")),
+                  ("C · " + FIAB["C"], Text(pct("C"), style=FIAB_COL["C"])), ("Sans niveau (ajoutés à la main ou avant la mise à jour fiabilité)", pct("?")),
                   ("Lecture", "Un rapport ne devrait affirmer que les éléments A. Les B se présentent comme « un compte existe », les C comme des pistes.")],
                  "📊 Fiabilité", G))
     todo = by["C"] + by["B"]
@@ -11141,7 +11141,7 @@ def status_line():
         rep += f"   [{P}]▣[/] dossier « {escape(g['name'].replace('_', ' '))} » · {ne} entité(s)"
     except Exception:
         pass
-    return f"  [{P}]// OSINT · GEOINT v{VERSION}[/]   {ai}   {vis}   {dc}{rep}"
+    return f"  [{P}]// OSINT · GEOINT[/]   {ai}   {vis}   {dc}{rep}"
 
 
 def main():
