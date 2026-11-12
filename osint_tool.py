@@ -7623,7 +7623,10 @@ def mod_person():
             grav = [e for e, ok in zip(perms, ex.map(gravatar_hit, perms)) if ok]
     mx = None
     if dom:
-        mx = ", ".join(dns(dom, "MX")[:3]) or "aucun (le domaine ne reçoit pas d'emails)"
+        try:
+            mx = ", ".join(dns(dom, "MX")[:3]) or "aucun (le domaine ne reçoit pas d'emails)"
+        except Exception:
+            mx = "non vérifié (DNS injoignable)"
     q = f'"{full}"' + (f" {city}" if city else "")
     from urllib.parse import quote_plus as qp
     links = [("Google", f"https://www.google.com/search?q={qp(q)}"), ("LinkedIn", f"https://www.google.com/search?q={qp(q + ' site:linkedin.com/in')}"),
@@ -9453,9 +9456,13 @@ def mod_bodacc():
     q = ask_text("Nom d'entreprise, de dirigeant, ou SIREN").strip()
     if not q:
         return
-    with con.status(f"[{P}]Recherche au BODACC…", spinner="dots12"):
-        j = get_json("https://bodacc-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/annonces-commerciales/records", 25,
-                     params={"where": f'search("{q.replace(chr(34), "")}")', "limit": 50, "order_by": "dateparution desc"})
+    try:
+        with con.status(f"[{P}]Recherche au BODACC…", spinner="dots12"):
+            j = get_json("https://bodacc-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/annonces-commerciales/records", 25,
+                         params={"where": f'search("{q.replace(chr(34), "")}")', "limit": 50, "order_by": "dateparution desc"})
+    except requests.RequestException:
+        log("Le registre BODACC ne répond pas (réseau, VPN ou site en maintenance). Réessaie dans quelques minutes.", Y)
+        return pause()
     rs = j.get("results", [])
     if not rs:
         log("Aucune annonce trouvée.", Y)
@@ -10403,7 +10410,7 @@ def mod_los():
     bars = "▁▂▃▄▅▆▇█"
     step = max(1, len(el) // 60)
     con.print(f"[{M}]Profil du relief (observateur à gauche) : [{G}]" + "".join(bars[min(7, int((e - lo) / max(hi - lo, 1) * 7.999))] for e in el[::step]) + f"[/]  {lo:.0f} → {hi:.0f} m")
-    add_report("Ligne de vue", f"{a[0]:.5f},{a[1]:.5f} → {b[0]:.5f},{b[1]:.5f}", f"{km:.2f} km · {'VISIBLE' if r['visible'] else 'MASQUÉ'} · marge {r['marge_m']:.0f} m")
+    add_report("Ligne de vue", f"{a[0]:.5f},{a[1]:.5f} → {b[0]:.5f},{b[1]:.5f}", f"{km:.2f} km · {'VISIBLE' if r['visible'] else 'MASQUÉ'} · marge {int(round(r['marge_m'])) + 0} m")
     if ask_yes("Voir sur la carte ?"):
         mk = [{"lat": a[0], "lon": a[1], "label": "observateur", "c": "#00e5ff"}, {"lat": b[0], "lon": b[1], "label": "objet observé"}]
         if ib is not None:
