@@ -1,0 +1,246 @@
+{
+ "version": 1,
+ "challenges": [
+  {
+   "id": "F1",
+   "niv": "facile",
+   "pts": 100,
+   "titre": "Photo de vacances",
+   "fichier": "facile1_vacances.jpg",
+   "enonce": "Un ami t'envoie cette photo de ses vacances sans te dire où il était. Dans quelle commune a-t-elle été prise ?",
+   "format": "nom de la commune",
+   "rep": {
+    "type": "text",
+    "h": [
+     "4878da74256b888c6d6d5710bd925600a95b71a502390ff49deb29c6e64a2887"
+    ],
+    "l": [
+     8
+    ]
+   },
+   "indices": [
+    "Les photos prises au téléphone gardent souvent des informations cachées dans le fichier.",
+    "Menu 8 (Métadonnées) sur la photo : regarde la ligne POSITION GPS."
+   ]
+  },
+  {
+   "id": "F2",
+   "niv": "facile",
+   "pts": 100,
+   "titre": "La note anonyme",
+   "fichier": "facile2_rapport.pdf",
+   "enonce": "Cette note confidentielle a été « anonymisée » : aucun nom dans le texte. Qui l'a écrite ? Donne son nom de code.",
+   "format": "nom de code",
+   "rep": {
+    "type": "text",
+    "h": [
+     "455c95cb96e881fedb75fa8ec7c602741278faa02b363fc29074686d0faaabd1",
+     "27065de071014c2b21d46771eb9264fce372e77d1e23a0c4b0e47bb8e92788fc"
+    ],
+    "l": [
+     8,
+     13
+    ]
+   },
+   "indices": [
+    "Un PDF garde des informations sur son auteur, même si le texte n'en parle pas.",
+    "Menu 8 (Métadonnées) sur le PDF : regarde le champ Author."
+   ]
+  },
+  {
+   "id": "F3",
+   "niv": "facile",
+   "pts": 100,
+   "titre": "Le monument",
+   "fichier": "facile3_monument.jpg",
+   "enonce": "Dans quelle ville se trouve ce monument ?",
+   "format": "nom de la ville",
+   "rep": {
+    "type": "text",
+    "h": [
+     "53f14b30e2f3dc8de5d6b68144d09481e3aae11851e7fe9c8bf8859694cf82a8",
+     "33876230e41c7f0a7f63464eebe991df2dc6e83253eb04f7d6a9329d0200cb89",
+     "173bf89b88c67ae03cfd10b15829ead1ce9d99133b1df977b1f94bb9f4dfa889",
+     "86696875da6544bd017cd32f3eded5c28bd8bf8cfcd9f4e3028d2bf6df1e8a14"
+    ],
+    "l": [
+     7,
+     8,
+     9
+    ]
+   },
+   "indices": [
+    "Essaie le menu 6 (Géoloc photo) ou la recherche d'image inversée du menu 7.",
+    "Il a été construit pour l'Exposition universelle de 1958 et représente un cristal de fer."
+   ]
+  },
+  {
+   "id": "F4",
+   "niv": "facile",
+   "pts": 100,
+   "titre": "Le bloc zéro",
+   "fichier": null,
+   "enonce": "L'adresse Bitcoin 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa a reçu la toute première récompense de l'histoire de Bitcoin (le bloc n° 0). Combien de BTC contenait cette récompense ?",
+   "format": "un nombre",
+   "rep": {
+    "type": "num",
+    "v": "OFREAkVIOA=="
+   },
+   "indices": [
+    "Menu 5 (Crypto) avec cette adresse, puis ouvre l'explorateur mempool.space.",
+    "Dans l'explorateur, va tout en bas : la plus ancienne transaction de l'adresse."
+   ]
+  },
+  {
+   "id": "M1",
+   "niv": "moyen",
+   "pts": 250,
+   "titre": "Le tram jaune",
+   "fichier": "moyen1_rue.jpg",
+   "enonce": "Le nom de la ville a été flouté. Où exactement roule ce tramway ? Donne la place (ou ses coordonnées).",
+   "format": "nom de la place ou coordonnées (lat, lon), à 250 m près",
+   "rep": {
+    "type": "geo",
+    "v": "OFJMAFJJVBgWQ1NEV1pSUkQaU1RFHwFdRjQ=",
+    "h": [
+     "85ac9d266f29f148f409132041983735b1b4227709f08513503d1234fb366bfe",
+     "fd0dacd97178f2abcb6ef69afe6cddff00faad15e0408dd8e7fe830a61275511",
+     "c1419129d9785579fce3c4b0af806078f8c7e1bb34e8ed9eddcb71969a808fd6",
+     "b282881987ba7061166ee505a5b5c2c28e1836bbb89f3ff3087f2b22d54be4af"
+    ],
+    "l": [
+     10,
+     15,
+     17,
+     21
+    ]
+   },
+   "indices": [
+    "Commence par la ville : la langue de la pub et le tram jaune historique (menu 6 aide beaucoup).",
+    "C'est dans le quartier d'Alfama, sur la ligne 28, juste à côté d'un célèbre belvédère (miradouro) : vérifie avec Street View."
+   ]
+  },
+  {
+   "id": "M2",
+   "niv": "moyen",
+   "pts": 250,
+   "titre": "Météo du 14 juillet",
+   "fichier": null,
+   "enonce": "Le 14 juillet 2025 à 10 h (heure de Paris), quelle température faisait-il au pied de la tour Eiffel ?",
+   "format": "en °C, à 1,5 °C près",
+   "rep": {
+    "type": "num",
+    "v": "OFNHAFdURR4BWi4="
+   },
+   "indices": [
+    "Menu 11 (Météo passée).",
+    "Lieu : Tour Eiffel · Date : 14/07/2025 · lis la ligne 10:00."
+   ]
+  },
+  {
+   "id": "M3",
+   "niv": "moyen",
+   "pts": 250,
+   "titre": "Plus vieux que Discord",
+   "fichier": null,
+   "enonce": "L'appli Discord est sortie en 2015, mais le nom de domaine discord.com existait bien avant. En quelle année a-t-il été enregistré ?",
+   "format": "une année",
+   "rep": {
+    "type": "num",
+    "v": "OFNEHlVURR9y"
+   },
+   "indices": [
+    "Menu 15 (Domaine / IP) avec discord.com.",
+    "Regarde la partie WHOIS : la date « Créé »."
+   ]
+  },
+  {
+   "id": "M4",
+   "niv": "moyen",
+   "pts": 250,
+   "titre": "L'heure de l'ombre",
+   "fichier": null,
+   "enonce": "Le 21 juin 2026, devant la pyramide du Louvre à Paris, les ombres pointent exactement vers l'est. Quelle heure est-il ?",
+   "format": "HH:MM (heure de Paris), à 20 min près",
+   "rep": {
+    "type": "time",
+    "v": "OFBFHlZURR0fMg=="
+   },
+   "indices": [
+    "Si l'ombre part vers l'est, le soleil est à l'opposé : à l'ouest (azimut 270°).",
+    "Menu 10 (Ombres & soleil), mode 3 : lieu « Pyramide du Louvre », date 21/06/2026, fuseau Europe/Paris."
+   ]
+  },
+  {
+   "id": "D1",
+   "niv": "difficile",
+   "pts": 500,
+   "titre": "Le point de vue",
+   "fichier": "difficile1_vue.jpg",
+   "enonce": "D'où exactement a été prise cette photo ? Le photographe était très haut…",
+   "format": "nom du lieu ou coordonnées (lat, lon), à 800 m près",
+   "rep": {
+    "type": "geo",
+    "v": "OFVMAF1MVx4XQ1NbQEdRU0QaVFRFHwFXLg==",
+    "h": [
+     "df20ad0b00fa3bd2080faa3bf231a455f24401ce20cff4c3f70ca5f075bc0b70",
+     "1eb60eee1a68a45dcd05388a3223f038d4ce79ad7e3414f60c05b9350d9eb1c3",
+     "39144df2f1687ec4531bde2d48639643a245d9b6157c837003107ec72a6e3422"
+    ],
+    "l": [
+     12,
+     16,
+     17
+    ]
+   },
+   "indices": [
+    "Repère la tour Eiffel et, derrière elle, les tours de La Défense : dans quelle direction regarde le photographe ?",
+    "Il est au sud-est de la tour Eiffel, à plus de 200 m de haut… et il n'y a qu'un seul gratte-ciel au centre de Paris."
+   ]
+  },
+  {
+   "id": "D2",
+   "niv": "difficile",
+   "pts": 500,
+   "titre": "Nuit froide",
+   "fichier": "difficile2_nuit.jpg",
+   "enonce": "Quelle température faisait-il à l'endroit et au moment exacts où cette photo a été prise ?",
+   "format": "en °C, à 1,5 °C près",
+   "rep": {
+    "type": "num",
+    "v": "OFdaGklYVAEaMg=="
+   },
+   "indices": [
+    "Les métadonnées de la photo donnent le lieu ET l'heure de prise de vue.",
+    "Menu 8 sur la photo, puis menu 11 avec ces coordonnées et cette date : lis l'heure de la photo."
+   ]
+  },
+  {
+   "id": "D3",
+   "niv": "difficile",
+   "pts": 500,
+   "titre": "Le chat messager",
+   "fichier": "difficile3_chat.jpg",
+   "enonce": "Ce chat transporte un message secret qui donne un point de rendez-vous. Quel monument est le point de rendez-vous ?",
+   "format": "nom du monument",
+   "rep": {
+    "type": "text",
+    "h": [
+     "ace2bfa7ef815d898d0e49d1611fe01d4c9643c1e69fb46c256b4d656d9a2c4a",
+     "560646ea6cdb7fc56fea7732e0a3a0bbf0ac2e1d60d90517cdcc10fc05188693",
+     "2beffd46da386875d460e3ddc70281184662418d0f229f377546cf37fe8bb8f6",
+     "ace2bfa7ef815d898d0e49d1611fe01d4c9643c1e69fb46c256b4d656d9a2c4a"
+    ],
+    "l": [
+     9,
+     18,
+     27
+    ]
+   },
+   "indices": [
+    "La description cachée de l'image ressemble à du base64 : décode-la (CyberChef → From Base64, ou base64decode.org).",
+    "Tu obtiens des coordonnées : menu 12 (Infos d'un lieu), puis ouvre Google Maps."
+   ]
+  }
+ ]
+}

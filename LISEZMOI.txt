@@ -1,0 +1,103 @@
+CAT.EXE // OSINT · GEOINT TOOL v6.0
+
+PYTHON : 3.14 minimum. LANCER.bat l'installe tout seul s'il manque (winget), sans toucher aux anciennes versions.
+
+LANCEMENT
+- Double-clique sur LANCER.bat : installe ce qu'il faut, puis l'outil demarre.
+- Version .exe : double-clique une fois sur CREER_EXE.bat -> dossier CatExe-OSINT avec CatExe-OSINT.exe
+  (seuls GeoCLIP, la video et l'execution des exercices Python demandent la version LANCER.bat).
+- Mac/Linux : python3.14 osint_tool.py
+
+NAVIGATION : fleches haut/bas + Entree. Echap = retour.
+PAGES : n (ou fleche droite) = page suivante, p (ou fleche gauche) = page precedente, 1 a 7 = aller a une page.
+Le menu principal a une page par categorie, et les longs resultats sont aussi decoupes en pages.
+Tape des lettres pour chercher un module (ex. « ip », « deco », « mail »).
+
+CARTES : les pages s'ouvrent via un petit serveur local (http://127.0.0.1) et utilisent des fonds de carte
+sans cle (Esri, OpenStreetMap…). Si un fond est bloque, la carte bascule toute seule sur un autre.
+
+NOUVEAU EN v4
+- Apprendre a coder : 23 langages, cours, sujets libres sans limite, exercices corriges, prof IA,
+  parcours « cree ton propre outil OSINT » (7 etapes jusqu'au .exe), export des lecons en PDF.
+- Fuite de mot de passe (sans l'envoyer) · Decodeur d'ID & dates cachees (TikTok, X, Insta, Discord…)
+- Video -> images + GPS cache · Satellite d'avant (images depuis 2014) · Distance, azimut, horizon
+- En-tetes d'email (phishing) · Extracteur d'indices · Archives d'une page · Reseau (IP, ASN, MAC)
+- Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
+- Rapport en PDF (lisible sur iPhone)
+
+NOUVEAU EN v6.3
+---------------
+- 5 outils : Annonces légales (BODACC), IBAN (contre les faux RIB), Véhicule (VIN), Adresse MAC → fabricant,
+  Fichiers archivés d'un domaine (Wayback Machine, export CSV).
+- 12 thèmes de plus (27 au total) : Nord, Tokyo Night, Gruvbox, Monokai, Solarized, Catppuccin, Rosé Pine,
+  Forest, Lava, Cobalt, Wine, Paper.
+- Menu : favoris (touche *), modules récents, compteur d'utilisation, dossier en cours dans la barre d'état.
+- Graphe : halos lumineux par type, liens colorés et courbes, anneau animé sur les pistes clés,
+  ondes pendant une recherche, étiquettes sur fond, filtres animés.
+
+NOUVEAU EN v6.2
+---------------
+- Design plus sobre : thème « Graphite » par défaut (gris / ambre), emojis retirés de l'affichage
+  (Réglages → Style pour les remettre), le thème néon d'avant s'appelle « Cyber ».
+- Email : analyse complète en une fois (MX, SPF/DMARC, jetable, Gravatar, fuites traduites en français,
+  comptes sur 7 sites), puis recherche sur 120 sites en un choix.
+- Email → comptes : réparé (Holehe tourne directement dans l'outil + 7 tests maison qui marchent sans Holehe).
+- Graphe façon logiciel d'enquête : dossier numéroté, icônes par type, barre « Ajouter + chercher » avec
+  détection du type, fiche par entité (Fiche / Recherches / Liens), évaluation Confirmé / À vérifier /
+  Fausse piste, pistes clés, journal horodaté, menu clic droit complet, filtres par type,
+  rapport d'enquête imprimable (PDF), export PNG / JSON / CSV.
+
+NOUVEAU EN v6.1
+---------------
+- 🧅 Anonymat : test d'exposition (IP réelle / IP via Tor), changer d'IP (nouveau circuit Tor),
+  ouverture de Tor Browser (ou Firefox sur Tor), tests de fuites WebRTC / DNS.
+  Il faut Tor Browser (gratuit, torproject.org). Ce n'est pas l'anonymat total.
+- 🔎 Recherche inversée d'image : Google Lens, Yandex, TinEye, Bing, SauceNAO, Baidu en un coup.
+- 📹 Webcams d'un lieu : webcams publiques officielles (Windy) pour vérifier météo / lieu.
+- 📬 Email → comptes (Holehe) : sur quels sites un email a un compte (s'installe tout seul).
+- 🌾 Récolte d'un domaine (façon theHarvester) : sous-domaines, emails, MX, personnes (Hunter).
+- 📸 URLScan.io : historique des scans, nouveau scan avec capture d'écran et verdict.
+- ⚡ Scan auto (façon SpiderFoot) : toutes les recherches d'un coup sur une cible, dans le graphe.
+- 🗂 Sources pro : Censys, Hunter, Epieos, IntelX, DeHashed, SecurityTrails, GreyNoise, OSINT Framework…
+Clés API facultatives (Windy, Hunter, urlscan) : demandées une fois, gardées dans config.json.
+
+NOUVEAU EN v6.0
+- Animation de demarrage : journal de boot facon hacker, puis le logo CAT.EXE se decrypte petit a petit (glitch inclus).
+- 14 themes de couleurs (Reglages > Theme) : Cyber, Matrix, Synthwave, Blood, Ocean, Gold, Ice, Dracula, Toxic,
+  Sakura, Amber, Mono, Sunset, Aurora. Apercu en direct, applique au terminal, aux cartes et au graphe.
+- Graphe d'enquete facon Maltego : clic droit sur un element = transformations (pseudo -> 17 reseaux ou 600+ sites,
+  email -> Gravatar / domaine / fuites, domaine -> DNS / sous-domaines, IP -> geo / operateur / ports / meme IP…),
+  tableau de bord, chemin entre 2 elements, dispositions (libre, arbre, cercle, par type), regroupement par type,
+  export JSON / Excel, import, raccourcis clavier.
+- Nouveaux outils : Lien de carte -> coordonnees (Google Maps, Waze, OSM, Apple, Bing, Yandex…),
+  Lot de photos -> trajet + chronologie, Comparer deux images, Video en ligne : date exacte + miniatures (YouTube, TikTok),
+  Fuites d'un site (Have I Been Pwned).
+
+NOUVEAU EN v5.2
+- Un TUTO pour chaque module : a quoi il sert, ce qu'il te faut, comment recuperer l'info
+  (photo originale avec GPS, en-tetes d'email, ID Discord, adresse IP…), etapes et astuces.
+  Il s'affiche a la 1re ouverture du module, puis a tout moment avec la touche ? dans le menu.
+  (Reglages > Reafficher les tutos pour les revoir automatiquement.)
+
+NOUVEAU EN v5.1
+- Graphe d'enquete (facon Obsidian / Maltego) : fenetre a part qui dessine ton enquete en toile
+  (pseudos, comptes, emails, IP, lieux…). Chaque module l'alimente tout seul, en direct.
+  Ajouter / relier des elements, notes, recherche, filtres par type, export en image.
+  Plusieurs enquetes possibles (dossier resultats/enquetes).
+
+NOUVEAU EN v5
+- Nouveau design (palette cyan / violet) et menus par pages (n / p)
+- Image -> coordonnees : GPS cache, sinon estimation par l'IA locale (GeoCLIP + vision), carte
+- IP lookup : pays, ville, operateur, ASN, VPN / proxy / Tor, ports et failles, sites sur la meme IP
+- Lookup reseaux sociaux : 17 plateformes (GitHub, Reddit, TikTok, Instagram, YouTube, Bluesky, Steam…)
+- Pseudo sur 600+ sites (base WhatsMyName, mise a jour toute seule)
+- Recherche de personne (emails probables, pseudos, annuaires) · Discord lookup (invitation, ID, widget)
+- Boite a outils hors ligne : steganographie, strings, CIDR, timestamps, mots de passe, coordonnees
+
+IA 100 % LOCALE : tout passe par Ollama sur ton PC (gratuit, sans cle, rien n'est envoye sur internet).
+  Au premier usage l'outil propose de l'installer et de telecharger le modele (qwen2.5:3b, ~2 Go).
+  Plus de Gemini ni de Pollinations.
+
+CHALLENGES : 11 defis, flag CATEXE{...} a poster sur le Discord. Admin : « Verifier le flag d'un joueur ».
+
+Discord Cat.exe : https://discord.gg/RWYAPZ8Qbp
