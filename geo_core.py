@@ -621,31 +621,91 @@ def name_tokens(s):
     return [t for t in re.split(r"[^a-z0-9]+", _strip_acc(str(s or ""))) if t]
 
 
+_PARTICLES = {"de", "du", "des", "le", "la", "les", "en", "sur", "sous", "aux", "l", "d"}
+_ABBR = {"st": "saint", "ste": "sainte"}
+# après une ville, « le / la » annonce un quartier de cette ville (« Cannes la Bocca »), pas une autre commune
+_CITY_LINK = {"de", "du", "des", "d", "en", "sur", "sous", "aux", "les"}
+
+
+def _groups(s):
+    """Découpe un texte en mots entiers. Un mot à traits d'union (« Dupont-Aignan », « Sainte-Foy-lès-Lyon ») reste UN seul bloc,
+    l'apostrophe colle les lettres (« O'Connor » → « oconnor »). Renvoie [(mot collé sans accents, mot d'origine)]."""
+    out = []
+    for w in re.findall(r"[^\W_]+(?:[-'’][^\W_]+)*", str(s or ""), re.UNICODE):
+        parts = [_ABBR.get(p, p) for p in re.split(r"-", _strip_acc(w).replace("'", "").replace("’", "")) if p]
+        glue = "".join(parts)
+        if re.search(r"[a-z]", glue):
+            glue = re.sub(r"\d+$", "", glue)  # « jean69 » → « jean » : chiffres ajoutés à un nom dans un pseudo
+        if glue:
+            out.append((glue, w))
+    return out
+
+
+def _runs(groups, target):
+    """Positions (début, fin) où une suite de mots entiers, collés, donne exactement `target`."""
+    res = []
+    for a in range(len(groups)):
+        acc = ""
+        for b in range(a, len(groups)):
+            acc += groups[b][0]
+            if acc == target:
+                res.append((a, b + 1))
+            if len(acc) >= len(target):
+                break
+    return res
+
+
+def _glue(s):
+    return "".join(g[0] for g in _groups(s))
+
+
 def name_match(shown, first, last):
     """Compare un nom affiché sur un profil au nom cherché. Renvoie 3 (prénom et nom entiers présents),
-    2 (nom de famille + initiale du prénom), 1 (un seul des deux) ou 0 (rien)."""
-    tk = name_tokens(shown)
-    f, l = name_tokens(first), name_tokens(last)
-    if not tk or not f or not l:
+    2 (nom de famille + initiale du prénom), 1 (un seul des deux) ou 0 (rien).
+    Un nom composé n'est pas confondu avec une de ses parties : « Dupont-Aignan » n'est pas « Dupont »."""
+    gr = _groups(shown)
+    tf, tl = _glue(first), _glue(last)
+    if not gr or not tf or not tl:
         return 0
-    has_last = all(x in tk for x in l)
-    has_first = all(x in tk for x in f)
-    if has_last and has_first:
+    if len(gr) == 1 and gr[0][0] in (tf + tl, tl + tf):
         return 3
-    glued = "".join(tk)
-    if "".join(f) + "".join(l) == glued or "".join(l) + "".join(f) == glued:
-        return 3
-    if has_last and any(t != l[0] and t[:1] == f[0][:1] and len(t) <= 2 for t in tk):
-        return 2
-    return 1 if has_last or has_first else 0
+    lasts = []
+    for a, b in _runs(gr, tl):
+        glued = b - a > len(_groups(last))  # plusieurs mots recollés pour former le nom (« du Pont » → « Dupont »)
+        if glued and b < len(gr) and gr[b][0] in _PARTICLES:
+            continue  # le nom continue après (« du Pont de Nemours ») : ce n'est pas le même nom
+        lasts.append((a, b))
+    firsts = _runs(gr, tf)
+    for la, lb in lasts:
+        if any(fb <= la or fa >= lb for fa, fb in firsts):
+            return 3
+    if lasts:
+        initials = "".join(g[0][:1] for g in _groups(first))
+        la, lb = lasts[0]
+        for k, (w, _) in enumerate(gr):
+            if not la <= k < lb and len(w) <= 2 and (w == initials or w == tf[:1] or (len(w) == 2 and w == initials[:2])):
+                return 2
+        return 1
+    return 1 if firsts else 0
 
 
 def city_match(text, city):
-    """La ville cherchée apparaît-elle comme mot entier dans ce texte (lieu, bio) ?"""
-    c, t = name_tokens(city), name_tokens(text)
-    if not c or not t:
+    """La ville cherchée apparaît-elle dans ce texte (lieu, bio) comme nom entier ?
+    « Lyon » n'est pas trouvé dans « Sainte-Foy-lès-Lyon », « Tours » pas dans « Joué-lès-Tours », « Nice » pas dans « very nice »."""
+    tc = _glue(city)
+    gr = _groups(text)
+    if not tc or not gr:
         return False
-    return any(t[i:i + len(c)] == c for i in range(len(t) - len(c) + 1))
+    capitals = sum(1 for _, w in gr if w[:1].isupper())
+    for a, b in _runs(gr, tc):
+        if b < len(gr) and gr[b][0] in _CITY_LINK and b + 1 < len(gr):
+            continue  # « Saint Étienne du Rouvray », « Toulon sur Arroux » : une autre commune
+        if a > 0 and gr[a - 1][0] in ("les", "sur", "sous") and a > 1:
+            continue  # « Joué lès Tours » : une autre commune
+        if len(gr) >= 3 and capitals and not any(w[:1].isupper() for _, w in gr[a:b]):
+            continue  # mot commun en minuscules dans une phrase (« very nice guy »), pas un nom de ville
+        return True
+    return False
 
 
 def person_usernames(first, last, limit=8):

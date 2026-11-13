@@ -48,7 +48,7 @@ Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont cha
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 113 tests automatiques, réseau simulé |
+| `tests/` | 118 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -60,6 +60,19 @@ ou `python osint_tool.py --test`. Les tests tournent aussi automatiquement sur G
 
 Ce que les tests couvrent : calculs géographiques contre des valeurs de référence publiées, contrôles anti-faux-positifs (pseudos, emails), recoupement des sources IP, lecture des réponses de services, reprise après coupure réseau, traçabilité du graphe.
 Ce qu'ils ne couvrent pas : les sites réels. Un site qui change son format peut fausser un résultat sans faire échouer un test.
+
+## Justesse mesurée du tri des profils
+La recherche de personne trie les profils trouvés : retenu (le nom affiché correspond) ou écarté (homonyme partiel, autre personne). Ce tri est mesuré sur 213 cas étiquetés à la main, choisis pour leurs pièges : noms composés, particules, accents, initiales, pseudos, villes voisines.
+
+| Lot | Cas | Résultat à la première mesure |
+|---|---|---|
+| Profils, lot de contrôle (jamais vu par le code) | 50 | précision 100 % · rappel 96 % |
+| Villes, lot de contrôle (jamais vu par le code) | 40 | 95 % justes |
+| Profils et villes, lot de réglage | 123 | 100 % après réglage |
+
+Les 3 erreurs du lot de contrôle ont ensuite été corrigées ; les tests exigent désormais au moins 95 % sur chaque lot (`tests/test_precision.py`).
+
+Ce que ces chiffres veulent dire : quand l'outil **retient** un profil, le nom affiché est bien celui cherché. Ce qu'ils ne disent pas : la part des personnes que l'outil **retrouve**. Elle dépend de ce que chacun publie sous son vrai nom, et aucun outil ne peut la garantir.
 
 ## Installation
 ```
