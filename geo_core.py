@@ -455,3 +455,161 @@ def dns_agree(answers):
     return ("réponses différentes selon le résolveur", common, union - common)
 
 
+
+
+# ============================================================ MESURES SUR PHOTO (photogrammétrie simple)
+def focal_px(f35, w, h):
+    """Focale en pixels à partir de la focale « équivalent 35 mm » : le grand côté de l'image correspond à 36 mm."""
+    if not f35 or f35 <= 0 or not w or not h:
+        return None
+    return f35 * max(w, h) / 36.0
+
+
+def dist_from_size(real_m, size_px, fpx):
+    """Distance de l'objet (m) quand on connaît sa taille réelle et sa taille sur la photo."""
+    if not fpx or size_px <= 0 or real_m <= 0:
+        return None
+    return real_m * fpx / size_px
+
+
+def size_from_dist(dist_m, size_px, fpx):
+    """Taille réelle de l'objet (m) quand on connaît sa distance."""
+    if not fpx or size_px <= 0 or dist_m <= 0:
+        return None
+    return size_px * dist_m / fpx
+
+
+def measure_range(fn, a, size_px, fpx, px_err=2.0, focal_err=0.05):
+    """Fourchette (min, max) d'une mesure pour une erreur de ± px_err pixels et ± focal_err sur la focale."""
+    vals = [fn(a, max(size_px + dp, 0.5), fpx * (1 + df)) for dp in (-px_err, px_err) for df in (-focal_err, focal_err)]
+    vals = [v for v in vals if v]
+    return (min(vals), max(vals)) if vals else None
+
+
+def height_from_shadow(shadow_m, sun_el):
+    """Hauteur d'un objet vertical d'après la longueur de son ombre au sol et la hauteur du soleil (°)."""
+    if shadow_m <= 0 or not 0.5 <= sun_el < 89.5:
+        return None
+    return shadow_m * math.tan(math.radians(sun_el))
+
+
+# ============================================================ CHRONOLOGIE D'UN DOSSIER
+_DATE_FR = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})(?:[ T](\d{1,2}):(\d{2}))?")
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?")
+
+
+def find_dates(text):
+    """Dates écrites dans un texte (JJ/MM/AAAA ou AAAA-MM-JJ, heure facultative). Renvoie [(datetime, précise à l'heure ?)]."""
+    out = []
+    for rx, order in ((_DATE_FR, (2, 1, 0)), (_DATE_ISO, (0, 1, 2))):
+        for m in rx.finditer(str(text or "")):
+            g = m.groups()
+            try:
+                y, mo, d = int(g[order[0]]), int(g[order[1]]), int(g[order[2]])
+                if not 1970 <= y <= 2100:
+                    continue
+                out.append((datetime.datetime(y, mo, d, int(g[3] or 0), int(g[4] or 0)), g[3] is not None))
+            except (ValueError, TypeError):
+                continue
+    return out
+
+
+TL_SKIP = ("vérifié le", "_", "note")
+
+
+def timeline_events(g):
+    """Événements datés d'un dossier : [(datetime, heure connue ?, élément, type, nature de la date)], du plus ancien au plus récent.
+    Les dates de vérification et d'ajout au dossier sont exclues : ce sont les dates de l'enquête, pas celles des faits."""
+    ev = []
+    for nid, n in (g.get("nodes") or {}).items():
+        if n.get("type") == "enquete":
+            continue
+        for k, v in (n.get("data") or {}).items():
+            if k.startswith("_") or k in TL_SKIP or not isinstance(v, (str, int, float)):
+                continue
+            for d, precise in find_dates(v):
+                ev.append((d, precise, n.get("label", nid), n.get("type", "autre"), k))
+        for d, precise in find_dates(n.get("label", "")):
+            ev.append((d, precise, n.get("label", nid), n.get("type", "autre"), "dans le nom"))
+    seen, out = set(), []
+    for e in sorted(ev, key=lambda x: x[0]):
+        key = (e[0], e[2], e[4])
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    return out
+
+
+# ============================================================ EXPORT DES LIEUX (KML / GeoJSON / CSV)
+def places_of(g):
+    """Lieux d'un dossier qui ont des coordonnées : [{name, lat, lon, fiab, source, marge}]."""
+    out = []
+    for nid, n in (g.get("nodes") or {}).items():
+        if n.get("type") != "lieu":
+            continue
+        d = n.get("data") or {}
+        c = coords_only(str(d.get("coordonnées") or "")) or coords_only(n.get("label", ""))
+        if not c:
+            continue
+        out.append({"name": n.get("label", nid), "lat": c[0], "lon": c[1], "fiab": d.get("_fiab") or "?",
+                    "source": str(d.get("source") or ""), "marge": str(d.get("marge") or "")})
+    return out
+
+
+def _xml(s):
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+KML_COL = {"A": "ff7aaf4c", "B": "ffff9d5b", "C": "ff3aa8e0", "?": "ff79706b"}  # format KML : aabbggrr
+
+
+def to_kml(places, title="Dossier"):
+    """Fichier KML lisible par Google Earth : une épingle par lieu, colorée selon sa fiabilité."""
+    styles = "".join(f'<Style id="f{k}"><IconStyle><color>{c}</color><scale>1.1</scale></IconStyle></Style>' for k, c in KML_COL.items())
+    marks = "".join(
+        f'<Placemark><name>{_xml(p["name"])}</name><styleUrl>#f{p["fiab"] if p["fiab"] in KML_COL else "?"}</styleUrl>'
+        f'<description>{_xml("Fiabilité : " + FIAB.get(p["fiab"], "non évaluée") + (" · marge " + p["marge"] if p["marge"] else "") + (" · source : " + p["source"] if p["source"] else ""))}</description>'
+        f'<Point><coordinates>{p["lon"]:.7f},{p["lat"]:.7f},0</coordinates></Point></Placemark>' for p in places)
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>{_xml(title)}</name>{styles}{marks}</Document></kml>\n'
+
+
+def to_geojson(places):
+    """Dictionnaire GeoJSON (ordre longitude, latitude imposé par la norme)."""
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(p["lon"], 7), round(p["lat"], 7)]},
+         "properties": {"nom": p["name"], "fiabilite": p["fiab"], "source": p["source"], "marge": p["marge"]}} for p in places]}
+
+
+# ============================================================ JOURNAL DE PREUVES (chaîne d'empreintes)
+def evidence_entry(prev_hash, data, meta, when=None):
+    """Nouvelle ligne du journal de preuves. Chaque ligne contient l'empreinte de la précédente :
+    modifier ou supprimer une ancienne ligne casse la chaîne, ce que evidence_verify() détecte."""
+    import hashlib
+    import json
+    e = {"n": None, "date_utc": (when or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+         "sha256": hashlib.sha256(data).hexdigest(), "taille": len(data), "prec": prev_hash or "", **{k: v for k, v in meta.items() if v not in (None, "")}}
+    body = json.dumps({k: v for k, v in e.items() if k not in ("n", "chaine")}, sort_keys=True, ensure_ascii=False)
+    e["chaine"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return e
+
+
+def evidence_verify(journal, files=None):
+    """Contrôle un journal. files : {nom de fichier: contenu en octets} pour vérifier aussi les copies enregistrées.
+    Renvoie (ok ?, [problèmes])."""
+    import hashlib
+    import json
+    pb, prev = [], ""
+    for i, e in enumerate(journal, 1):
+        body = json.dumps({k: v for k, v in e.items() if k not in ("n", "chaine")}, sort_keys=True, ensure_ascii=False)
+        if hashlib.sha256(body.encode("utf-8")).hexdigest() != e.get("chaine"):
+            pb.append(f"preuve n°{i} : la ligne du journal a été modifiée")
+        if e.get("prec", "") != prev:
+            pb.append(f"preuve n°{i} : la chaîne est rompue (une ligne a été supprimée, ajoutée ou déplacée avant elle)")
+        prev = e.get("chaine", "")
+        if files is not None and e.get("fichier"):
+            data = files.get(e["fichier"])
+            if data is None:
+                pb.append(f"preuve n°{i} : le fichier {e['fichier']} est introuvable")
+            elif hashlib.sha256(data).hexdigest() != e.get("sha256"):
+                pb.append(f"preuve n°{i} : le fichier {e['fichier']} a été modifié depuis la capture")
+    return not pb, pb

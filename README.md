@@ -27,7 +27,9 @@ Chaque résultat indique sa source et son niveau :
 Les recherches de comptes (pseudo, email) passent un test de contrôle avec un identifiant inexistant : un site qui répond « trouvé » à tout est écarté.
 Les calculs géographiques (distance, azimut, soleil) sont exacts : ellipsoïde WGS84 et algorithme NOAA.
 
-Outils dédiés à la vérification : **Même personne ?** (recoupement de profils), **Cohérence d'une photo**, **Ligne de vue** (relief réel), **Relèvement** (position par azimuts), **DNS recoupé** (3 résolveurs), **Bilan de fiabilité** du dossier.
+Outils dédiés à la vérification : **Même personne ?** (recoupement de profils), **Cohérence d'une photo**, **Ligne de vue** (relief réel), **Relèvement** (position par azimuts), **Mesures sur photo** (distance, taille, hauteur), **DNS recoupé** (3 résolveurs), **Capture de preuve** (copie, empreinte, journal chaîné), **Chronologie**, **Export des lieux** (KML, GeoJSON, CSV), **Bilan de fiabilité** du dossier.
+
+Le graphe d'enquête affiche le niveau de chaque élément par une pastille A / B / C, avec une légende cliquable et un mode « couleurs par fiabilité ».
 
 ## Quel fichier lancer
 | Ce que tu veux | Fichier à lancer | Ce qu'il fait |
@@ -46,7 +48,7 @@ Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont cha
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 71 tests automatiques, réseau simulé |
+| `tests/` | 96 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 

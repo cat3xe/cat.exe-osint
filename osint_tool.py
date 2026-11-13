@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, coords_only, coords_valid, ctrl_name, dns_agree, fmt_dist, geodesic, geodesic_dest, haversine, ip_consensus, los_compute, match_verdict, photo_checks, profile_match, resect, sun_pos)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, FIAB, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -463,8 +463,8 @@ def open_file(path):
 # Ce que chaque niveau NE prouve PAS : affiché avec le niveau, partout
 FIAB_LIMITE = {"A": "ne dit pas à qui appartient un compte, seulement ce qui a été lu à la source",
                "B": "un compte existe, mais rien ne prouve qu'il appartient à la personne recherchée",
-               "C": "estimation : à vérifier avant toute conclusion"}
-FIAB_COL = {"A": "#4caf7a", "B": "#7aa2ff", "C": "#e0a83a"}
+               "C": "ne pas s'en servir comme d'un fait"}
+FIAB_COL = {"A": "#4caf7a", "B": "#5b9dff", "C": "#e0a83a"}
 
 
 def fiab_tag(k, detail=""):
@@ -7578,7 +7578,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -9021,6 +9021,10 @@ def mod_fiab():
                   ("C · " + FIAB["C"], Text(pct("C"), style=FIAB_COL["C"])), ("Sans niveau (ajoutés à la main ou avant la mise à jour fiabilité)", pct("?")),
                   ("Lecture", "Un rapport ne devrait affirmer que les éléments A. Les B se présentent comme « un compte existe », les C comme des pistes.")],
                  "📊 Fiabilité", G))
+    bar = Text()
+    for k in ("A", "B", "C", "?"):
+        bar.append("█" * round(len(by[k]) / tot * 50), style=FIAB_COL.get(k, "#6b7079"))
+    con.print(bar)
     todo = by["C"] + by["B"]
     if todo:
         rows = [(n["label"][:60], GTYPES.get(n["type"], GTYPES["autre"])[1], (n.get("data") or {}).get("_fiab", "?"),
@@ -9028,6 +9032,223 @@ def mod_fiab():
         table_pages("À CONSOLIDER (les estimations d'abord)", ["Élément", "Type", "Niveau", "Comment le vérifier", "D'où ça vient"], rows)
     add_report("mod_fiab", "Bilan de fiabilité", f"{tot} éléments · A {pct('A')} · B {pct('B')} · C {pct('C')} · sans niveau {pct('?')}")
     pause()
+
+
+# ------------------------------------------------------------ 📏 MESURES SUR PHOTO
+def mod_photomesure():
+    con.rule(f"[{G}]📏 MESURES SUR PHOTO · distance, taille, hauteur")
+    con.print(f"[{M}]Calcule une distance ou une taille réelle à partir d'une photo. Il faut la focale de l'appareil (lue dans le fichier quand elle existe) "
+              "et une mesure en pixels faite sur l'image, avec n'importe quel logiciel de dessin.")
+    while True:
+        c = select("Que veux-tu mesurer ?", [{"label": "📐 Distance d'un objet", "value": "d", "desc": "tu connais sa taille réelle (porte, voiture, personne…)"},
+                                              {"label": "📏 Taille réelle d'un objet", "value": "s", "desc": "tu connais sa distance"},
+                                              {"label": "🌞 Hauteur par l'ombre", "value": "o", "desc": "longueur de l'ombre au sol + hauteur du soleil"},
+                                              {"label": "← Retour", "value": None}])
+        if c is None:
+            return
+        if c == "o":
+            sh = ask_num(f"[{G}]Longueur de l'ombre au sol (mètres, mesurée sur une carte ou une vue satellite)", "10")
+            el = ask_num(f"[{G}]Hauteur du soleil en degrés (donnée par Ombres & soleil ou Cohérence d'une photo)", "45")
+            h = height_from_shadow(sh, el)
+            if h is None:
+                log("Valeurs impossibles : l'ombre doit être positive et le soleil entre 0,5° et 89,5°.", Y)
+                continue
+            lo, hi = height_from_shadow(sh * .95, max(el - 1, .5)), height_from_shadow(sh * 1.05, min(el + 1, 89.4))
+            con.print(kv([("Hauteur de l'objet", f"{h:.1f} m"), ("Fourchette", f"{lo:.1f} à {hi:.1f} m (ombre mesurée à ± 5 %, soleil à ± 1°)"),
+                          ("Fiabilité", Text.from_markup(fiab_tag("C" if el < 10 else "B", "soleil très bas : la moindre erreur compte double" if el < 10 else "valable sur un sol plat")))], "🌞 Hauteur par l'ombre", G))
+            add_report("Mesure photo", "Hauteur par l'ombre", f"ombre {sh:g} m, soleil {el:g}° → {h:.1f} m ({lo:.1f} à {hi:.1f} m)")
+            continue
+        f35 = W = H = None
+        if ask_yes("Lire la focale dans le fichier de la photo ?", True):
+            f = ask_path()
+            if f:
+                try:
+                    img, info, gps, cam = read_exif(f)
+                    W, H, f35 = img.width, img.height, cam.get("f35")
+                    log(f"Image {W}×{H}" + (f" · focale éq. 35 mm : {f35:.0f} mm" if f35 else " · pas de focale dans le fichier"), G if f35 else Y)
+                except Exception:
+                    log("Fichier illisible.", Y)
+        if not f35:
+            f35 = ask_num(f"[{G}]Focale équivalent 35 mm (téléphone récent ≈ 24 à 28, zoom ×2 ≈ 50)", "26")
+        if not W:
+            W = ask_num(f"[{G}]Largeur de l'image en pixels", "4000")
+            H = ask_num(f"[{G}]Hauteur de l'image en pixels", "3000")
+        fpx = focal_px(f35, W, H)
+        if not fpx:
+            log("Focale ou taille d'image invalide.", Y)
+            continue
+        px = ask_num(f"[{G}]Taille de l'objet sur l'image, en pixels", "200")
+        if px <= 0:
+            log("La taille en pixels doit être positive.", Y)
+            continue
+        if c == "d":
+            real = ask_num(f"[{G}]Taille réelle de l'objet en mètres (porte ≈ 2,04 · voiture ≈ 4,5 de long · adulte ≈ 1,7)", "2.04")
+            v, rg, unit, lab = dist_from_size(real, px, fpx), measure_range(dist_from_size, real, px, fpx), "m", "Distance de l'objet"
+        else:
+            dist = ask_num(f"[{G}]Distance de l'objet en mètres", "50")
+            v, rg, unit, lab = size_from_dist(dist, px, fpx), measure_range(size_from_dist, dist, px, fpx), "m", "Taille réelle de l'objet"
+        if not v:
+            log("Valeurs impossibles.", Y)
+            continue
+        con.print(kv([(lab, f"{v:.2f} {unit}"), ("Fourchette", f"{rg[0]:.2f} à {rg[1]:.2f} {unit} (mesure à ± 2 pixels, focale à ± 5 %)"),
+                      ("Champ horizontal", f"{math.degrees(2 * math.atan(max(W, H) / (2 * fpx))):.1f}°"),
+                      ("Fiabilité", Text.from_markup(fiab_tag("C" if px < 40 else "B", "objet trop petit sur l'image : mesure peu sûre" if px < 40
+                                                              else "valable si l'objet est de face et la photo non recadrée")))], f"📏 {lab}", G))
+        con.print(f"[{M}]Une photo recadrée, zoomée numériquement ou passée par un réseau social fausse la focale : pars du fichier original.")
+        add_report("Mesure photo", lab, f"focale {f35:g} mm, image {W:.0f}×{H:.0f}, objet {px:g} px → {v:.2f} {unit} ({rg[0]:.2f} à {rg[1]:.2f})")
+
+
+# ------------------------------------------------------------ 🗓 CHRONOLOGIE DU DOSSIER
+def mod_timeline():
+    con.rule(f"[{G}]🗓 CHRONOLOGIE DU DOSSIER")
+    g = gload()
+    ev = timeline_events(g)
+    if not ev:
+        log("Aucune date dans le dossier pour l'instant. Les dates viennent des recherches : création d'un compte, fuite, photo, publication.", Y)
+        return pause()
+    rows = [(d.strftime("%d/%m/%Y %H:%M") if precise else d.strftime("%d/%m/%Y"), GTYPES.get(t, GTYPES["autre"])[1], lab[:70], k) for d, precise, lab, t, k in ev]
+    span = (ev[-1][0] - ev[0][0]).days
+    con.print(f"[{M}]{len(ev)} événement(s) datés sur {span} jour(s), du {ev[0][0]:%d/%m/%Y} au {ev[-1][0]:%d/%m/%Y}. "
+              "Ce sont les dates des faits relevés ; la date d'ajout au dossier n'y figure pas.")
+    table_pages(f"CHRONOLOGIE · {gname().replace('_', ' ')}", ["Date", "Type", "Élément", "Nature de la date"], rows)
+    add_report("mod_timeline", "Chronologie", "\n".join(" · ".join(r) for r in rows[:80]))
+    if ask_yes("Créer la frise en page web ?", True):
+        items = "".join(f"<div class='ev'><div class='d'>{escape_html(r[0])}</div><div class='c'><b style='color:{GTYPES.get(e[3], GTYPES['autre'])[0]}'>{escape_html(r[1])}</b> "
+                        f"{escape_html(r[2])}<small>{escape_html(r[3])}</small></div></div>" for r, e in zip(rows, ev))
+        html = ("<!doctype html><html lang='fr'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                f"<title>Chronologie · {escape_html(gname())}</title><style>body{{margin:0;background:#07081a;color:#e4e9ff;font:14px/1.5 system-ui,sans-serif;padding:28px 18px}}"
+                "h1{font:700 18px monospace;color:#00e5ff;margin:0 0 4px}p{color:#7480a8;margin:0 0 22px}.tl{max-width:860px;margin:auto;border-left:2px solid #2b3158;padding-left:22px}"
+                ".ev{position:relative;padding:0 0 18px}.ev:before{content:'';position:absolute;left:-29px;top:5px;width:12px;height:12px;border-radius:50%;background:#00e5ff;border:2px solid #07081a}"
+                ".d{font:600 13px monospace;color:#b388ff}.c{background:#0e1028;border:1px solid #2b3158;border-radius:10px;padding:9px 13px;margin-top:4px}"
+                "small{display:block;color:#7480a8;margin-top:2px}</style></head><body><div class='tl'>"
+                f"<h1>CAT.exe // chronologie · {escape_html(gname().replace('_', ' '))}</h1><p>{len(ev)} événement(s), du plus ancien au plus récent.</p>{items}</div></body></html>")
+        save_open("chronologie", theme_html(html))
+    pause()
+
+
+# ------------------------------------------------------------ 🗺 EXPORT DES LIEUX (Google Earth, QGIS, tableur)
+def mod_exportgeo():
+    con.rule(f"[{G}]🗺 EXPORT DES LIEUX · KML, GeoJSON, CSV")
+    places = places_of(gload())
+    if not places:
+        log("Aucun lieu avec coordonnées dans le dossier. Les lieux viennent de la géoloc photo, des GPS EXIF, des IP et des liens de carte.", Y)
+        return pause()
+    d = OUT / "exports"
+    d.mkdir(parents=True, exist_ok=True)
+    base = f"lieux_{gname()}_{stamp()}"
+    (d / f"{base}.kml").write_text(to_kml(places, gname().replace("_", " ")), encoding="utf-8")
+    (d / f"{base}.geojson").write_text(json.dumps(to_geojson(places), ensure_ascii=False, indent=1), encoding="utf-8")
+    (d / f"{base}.csv").write_text("﻿nom;latitude;longitude;fiabilité;marge;source\n" + "\n".join(
+        ";".join(str(x).replace(";", ",").replace("\n", " ") for x in (p["name"], f"{p['lat']:.7f}", f"{p['lon']:.7f}", p["fiab"], p["marge"], p["source"])) for p in places), encoding="utf-8")
+    cnt = {k: sum(1 for p in places if p["fiab"] == k) for k in ("A", "B", "C", "?")}
+    con.print(kv([("Lieux exportés", str(len(places))), ("Par fiabilité", f"A {cnt['A']} · B {cnt['B']} · C {cnt['C']} · sans niveau {cnt['?']}"),
+                  ("Google Earth", str(d / f"{base}.kml")), ("QGIS / geojson.io", str(d / f"{base}.geojson")), ("Tableur", str(d / f"{base}.csv")),
+                  ("Lecture", "Les épingles sont colorées selon la fiabilité : vert = mesuré, bleu = existe, orange = estimation.")], "🗺 Export des lieux", G))
+    add_report("mod_exportgeo", "Export des lieux", f"{len(places)} lieu(x) · {d / base}")
+    if ask_yes("Voir tous les lieux sur une carte ?", True):
+        col = {"A": "#4caf7a", "B": "#5b9dff", "C": "#e0a83a", "?": "#8a8f96"}
+        save_open("lieux", quick_map(f"Lieux du dossier · {gname().replace('_', ' ')}",
+                                     [{"lat": p["lat"], "lon": p["lon"], "c": col[p["fiab"]], "s": 8,
+                                       "label": f"<b>{escape_html(p['name'])}</b><br>{escape_html(FIAB.get(p['fiab'], 'non évalué'))}" + (f"<br>marge {escape_html(p['marge'])}" if p["marge"] else "")} for p in places],
+                                     "<p>Vert : mesuré à la source · bleu : existe, lien à confirmer · orange : estimation · gris : non évalué.</p>"))
+    pause()
+
+
+# ------------------------------------------------------------ 🧾 CAPTURE DE PREUVE (copie + empreinte + journal chaîné)
+def ev_dir():
+    d = OUT / "preuves" / gname()
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def ev_load():
+    try:
+        return json.loads((ev_dir() / "journal.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def ev_add(data, meta, ext):
+    """Enregistre une copie + une ligne de journal. Renvoie la ligne."""
+    j = ev_load()
+    name = f"preuve_{len(j) + 1:03d}_{stamp()}{ext}"
+    (ev_dir() / name).write_bytes(data)
+    e = evidence_entry(j[-1]["chaine"] if j else "", data, dict(meta, fichier=name))
+    e["n"] = len(j) + 1
+    j.append(e)
+    (ev_dir() / "journal.json").write_text(json.dumps(j, ensure_ascii=False, indent=1), encoding="utf-8")
+    return e
+
+
+def mod_evidence():
+    con.rule(f"[{G}]🧾 CAPTURE DE PREUVE")
+    con.print(f"[{M}]Garde une copie d'une page web ou d'un fichier avec son empreinte SHA-256 et l'heure UTC. Chaque capture est liée à la précédente : "
+              "si une ligne du journal ou un fichier est modifié plus tard, la vérification le montre.")
+    while True:
+        j = ev_load()
+        c = select(f"Preuves du dossier « {gname().replace('_', ' ')} » ({len(j)})",
+                   [{"label": "🌐 Capturer une page web", "value": "url", "desc": "copie HTML + empreinte + lien d'archivage"},
+                    {"label": "📎 Ajouter un fichier", "value": "file", "desc": "photo, PDF, capture d'écran…"},
+                    {"label": "🔎 Vérifier le journal", "value": "check", "desc": "rien n'a été modifié depuis les captures ?"},
+                    {"label": "📋 Voir le journal", "value": "list"}, {"label": "← Retour", "value": None}])
+        if c is None:
+            return
+        if c == "url":
+            u = ask_text("Adresse de la page").strip()
+            if not u:
+                continue
+            u = u if u.startswith(("http://", "https://")) else "https://" + u
+            try:
+                with con.status(f"[{P}]Téléchargement…", spinner="dots12"):
+                    r = get(u, 25)
+            except Exception as e:
+                log(f"Page injoignable : {sl_err(e)}", R)
+                continue
+            if r.status_code >= 400:
+                log(f"Le site a répondu {r.status_code} : la page n'est pas accessible (supprimée, privée ou bloquée). Rien n'a été enregistré.", Y)
+                continue
+            if not r.content:
+                log("Le site a renvoyé une page vide : rien à garder comme preuve.", Y)
+                continue
+            ct = r.headers.get("content-type", "").split(";")[0]
+            ext = {"application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "application/json": ".json"}.get(ct, ".html")
+            e = ev_add(r.content, {"type": "page web", "url": u, "url_finale": r.url if r.url != u else None, "code_http": r.status_code,
+                                   "date_serveur": r.headers.get("date"), "derniere_modif": r.headers.get("last-modified"), "serveur": r.headers.get("server")}, ext)
+            con.print(kv([("Preuve n°", str(e["n"])), ("Heure de capture (UTC)", e["date_utc"]), ("Empreinte SHA-256", e["sha256"]), ("Taille", f"{e['taille']:,} octets".replace(",", " ")),
+                          ("Copie", str(ev_dir() / e["fichier"])), ("Archive publique", f"https://web.archive.org/save/{u}"),
+                          ("À savoir", "La copie contient le code de la page, pas son apparence. Pour une preuve que tout le monde peut contrôler, ouvre le lien d'archive : "
+                                       "la Wayback Machine garde alors sa propre copie datée.")], "🧾 Page capturée", G))
+            gnode("url", u, {"url": u, "preuve": f"n°{e['n']} · {e['date_utc']} · sha256 {e['sha256'][:16]}…"}, "enquete:" + gname(), "preuve", fiab="A",
+                  src="copie enregistrée avec empreinte (Capture de preuve)")
+            gsave()
+            add_report("mod_evidence", u, f"preuve n°{e['n']} · {e['date_utc']} · sha256 {e['sha256']}")
+        elif c == "file":
+            f = ask_path()
+            if not f:
+                continue
+            data = Path(f).read_bytes()
+            e = ev_add(data, {"type": "fichier", "nom_origine": Path(f).name}, Path(f).suffix.lower()[:8] or ".bin")
+            con.print(kv([("Preuve n°", str(e["n"])), ("Heure d'ajout (UTC)", e["date_utc"]), ("Empreinte SHA-256", e["sha256"]), ("Copie", str(ev_dir() / e["fichier"]))], "🧾 Fichier ajouté", G))
+            add_report("mod_evidence", Path(f).name, f"preuve n°{e['n']} · {e['date_utc']} · sha256 {e['sha256']}")
+        elif c == "check":
+            if not j:
+                log("Le journal est vide.", Y)
+                continue
+            files = {}
+            for e in j:
+                p = ev_dir() / e.get("fichier", "")
+                if e.get("fichier") and p.is_file():
+                    files[e["fichier"]] = p.read_bytes()
+            ok, pb = evidence_verify(j, files)
+            con.print(Panel((f"[{FIAB_COL['A']}]✔ Journal intact[/] : {len(j)} preuve(s), aucune ligne ni aucun fichier modifié depuis les captures." if ok
+                             else f"[{R}]✖ {len(pb)} anomalie(s)[/]\n" + "\n".join("• " + escape(x) for x in pb))
+                            + f"\n[{M}]Ce contrôle prouve que rien n'a changé depuis la capture. Il ne prouve pas la date elle-même : pour ça, il faut une archive publique.", border_style="#00e5ff"))
+        elif c == "list":
+            if not j:
+                log("Le journal est vide.", Y)
+                continue
+            table_pages("JOURNAL DE PREUVES", ["N°", "Heure UTC", "Type", "Origine", "SHA-256"],
+                        [(str(e.get("n", i)), e.get("date_utc", ""), e.get("type", ""), e.get("url") or e.get("nom_origine", ""), e.get("sha256", "")[:24] + "…") for i, e in enumerate(j, 1)])
 
 
 TUTOS.update({
@@ -9072,6 +9293,30 @@ Confirmer les enregistrements DNS d'un domaine en interrogeant **3 résolveurs i
 ### 🔎 Comment lire
 - **Identique sur 3 résolveurs** : information sûre.
 - **Différent** sur les adresses A : normal avec un CDN. Sur MX, NS ou TXT : à regarder de près.""",
+"mod_photomesure": """### 🎯 À quoi ça sert
+Mesurer sur une photo : **la distance** d'un objet, sa **taille réelle**, ou une **hauteur** d'après une ombre.
+### 🧰 Ce qu'il te faut
+Le **fichier original** (pour la focale) et une mesure **en pixels** faite sur l'image avec un logiciel de dessin.
+### 🔎 Comment lire
+- La **fourchette** compte autant que la valeur : elle montre l'effet d'une erreur de 2 pixels et de 5 % sur la focale.
+- Objet de biais, photo recadrée ou zoom numérique = résultat faux.""",
+"mod_exportgeo": """### 🎯 À quoi ça sert
+Sortir **tous les lieux du dossier** vers Google Earth (KML), QGIS (GeoJSON) ou un tableur (CSV).
+### 🔎 Comment lire
+Les épingles sont colorées selon la fiabilité : **vert** mesuré, **bleu** existe, **orange** estimation.""",
+"mod_timeline": """### 🎯 À quoi ça sert
+Ranger **dans l'ordre** toutes les dates trouvées pendant l'enquête, pour voir ce qui s'est passé avant quoi.
+### 🔎 Comment lire
+Ce sont les dates des **faits** (création d'un compte, fuite, photo). La date où tu as ajouté l'élément au dossier n'y figure pas.""",
+"mod_evidence": """### 🎯 À quoi ça sert
+Garder une **preuve** d'une page ou d'un fichier avant qu'il disparaisse : copie, empreinte SHA-256, heure UTC.
+### ▶ Étapes
+1. **Capturer une page web** ou **Ajouter un fichier**.
+2. Ouvre le **lien d'archive** proposé : la Wayback Machine garde sa propre copie datée.
+3. Plus tard, **Vérifier le journal** montre si quelque chose a été modifié.
+### 🔎 Comment lire
+- Le journal prouve que **rien n'a changé depuis** la capture.
+- Il ne prouve pas la date à lui seul : c'est le rôle de l'archive publique.""",
 "mod_fiab": """### 🎯 À quoi ça sert
 Faire le point sur ton dossier : ce qui est **prouvé**, ce qui **existe sans être relié**, ce qui n'est qu'une **piste**.
 ### 🔎 Comment lire
@@ -9119,6 +9364,8 @@ SECTIONS = [
         ("mod_place", "🌍 Infos d'un lieu", "adresse · UTM · 12 cartes", "Toutes les infos d'un point : adresse, coordonnées dans tous les formats, altitude, et 12 cartes (Street View, Earth 3D, Mapillary, satellite…)."),
         ("mod_satellite", "📡 Satellite d'avant", "historique depuis 2014", "Compare les images satellite d'un lieu sur ~200 dates depuis 2014 : constructions, démolitions, travaux, véhicules garés…"),
         ("mod_bearing", "📏 Distance · horizon", "azimut · visibilité", "Distance et direction entre 2 points, point à X km dans une direction, distance de l'horizon, et si un sommet ou une tour est visible malgré la courbure de la Terre."),
+        ("mod_photomesure", "📏 Mesures sur photo", "distance · taille · hauteur", "Calcule la distance d'un objet dont on connaît la taille, la taille d'un objet dont on connaît la distance, ou une hauteur d'après son ombre. Donne toujours la fourchette d'erreur."),
+        ("mod_exportgeo", "🗺 Export des lieux", "KML · GeoJSON · CSV", "Sort tous les lieux du dossier pour Google Earth, QGIS ou un tableur, avec une épingle colorée selon la fiabilité, et les affiche sur une carte."),
         ("mod_los", "⛰ Ligne de vue", "relief réel · visible ou masqué", "Depuis un point, voit-on vraiment un sommet, une tour, un immeuble ? Calcul avec le relief réel, la courbure de la Terre et la réfraction. Confirme ou élimine un lieu de prise de vue."),
         ("mod_resect", "📐 Relèvement", "position par azimuts", "Retrouve où se tenait le photographe à partir de 2 à 4 repères visibles et de leur direction, avec la marge d'erreur calculée."),
         ("mod_clues", "🧩 Recherche par indices", "trouver le lieu sur la carte", "Combine des indices vus sur une photo (église + pharmacie + arrêt de bus…) pour trouver tous les endroits d'une zone où ils sont proches."),
@@ -9158,6 +9405,8 @@ SECTIONS = [
     ("CAT.EXE", [
         ("mod_challenges", "🎯 Challenges", "facile · moyen · difficile", "11 challenges OSINT à résoudre avec l'outil. Bonne réponse = flag à poster sur le Discord pour le classement."),
         ("mod_graph", "🧬 Graphe d'enquête", "façon Obsidian · fenêtre", "Une fenêtre à part qui dessine ton enquête en toile : pseudos, comptes, emails, IP, lieux… reliés entre eux.\n\nChaque module que tu lances l'alimente tout seul, en direct. Tu peux ajouter des éléments, les relier, mettre des notes, chercher, filtrer par type et exporter en image.\n\nInspiré d'Obsidian et Maltego."),
+        ("mod_timeline", "🗓 Chronologie", "frise des faits datés", "Range dans l'ordre toutes les dates relevées dans le dossier (création de compte, fuite, photo, publication) et en fait une frise."),
+        ("mod_evidence", "🧾 Capture de preuve", "copie · empreinte · journal", "Garde une copie d'une page web ou d'un fichier avec son empreinte SHA-256 et l'heure UTC, dans un journal chaîné qui révèle toute modification ultérieure."),
         ("mod_fiab", "📊 Bilan de fiabilité", "prouvé · à confirmer · piste", "Fait le point sur le dossier en cours : combien d'éléments sont vérifiés à la source, combien existent sans être reliés, combien ne sont que des pistes, et comment vérifier chacun."),
         ("mod_autoscan", "⚡ Scan auto", "façon SpiderFoot", "Donne une cible (pseudo, email, domaine, IP, nom…) : l'outil lance toutes les recherches possibles, puis recommence sur ce qu'il trouve, et remplit le graphe tout seul."),
         ("mod_report", "📄 Rapport", "PDF · HTML", "Tout ce que tu as trouvé pendant la session, avec synthèse IA, en PDF (lisible sur iPhone) ou en page web."),
@@ -9168,7 +9417,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",

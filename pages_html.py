@@ -253,7 +253,8 @@ button.ghost{background:transparent}button.danger:hover{border-color:var(--r);co
 #net{position:absolute;inset:0}
 #filters{position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:4px;z-index:4;max-height:calc(100% - 24px);overflow:auto}
 .chip{display:flex;gap:8px;align-items:center;padding:5px 10px 5px 6px;backdrop-filter:blur(6px);transition:transform .12s,border-color .12s;background:rgba(14,16,40,.82);border:1px solid var(--bd);border-radius:7px;cursor:pointer;user-select:none;font-size:12px}
-.chip .dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1.5px solid}.chip .dot svg{width:12px;height:12px}
+.chip .dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1.5px solid}.chip .dot.fb{color:#07081a;font:700 11px system-ui}#fstat{white-space:nowrap}#fsel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22vw}.leg{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mu);padding:10px 4px 2px}.chip.mode{margin-top:6px}
+.fbar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--bg);border:1px solid var(--bd)}.fbar i{display:block;height:100%}.fleg{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12px;color:var(--mu)}.fleg span{display:flex;align-items:center;gap:6px}.fleg i{width:9px;height:9px;border-radius:50%;display:inline-block}.fleg b{color:var(--tx);font-weight:600}.chip .dot svg{width:12px;height:12px}
 .chip b{margin-left:auto;padding-left:8px;color:var(--mu);font-weight:500}.chip:hover{transform:translateX(3px);border-color:var(--mu)}.chip.off{opacity:.35}
 #zoom{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:4px;z-index:4}#zoom button{width:34px;height:34px;padding:0}
 #empty{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;color:var(--mu);pointer-events:none;padding:30px}
@@ -349,6 +350,9 @@ trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',check:'<path d="M5 12.5l4
 doc:'<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 13h6M9 17h4"/>'};
 const ico=(k,c)=>`<svg class="i" viewBox="0 0 24 24"${c?` style="color:${c}"`:''}>${P[k]||P.autre}</svg>`;
 const ST={ok:['Confirmé','#4caf7a'],check:['À vérifier','#e0a83a'],faux:['Fausse piste','#6b7079']};
+const FB={A:['Vérifié à la source','#4caf7a','A'],B:['Existe · lien à confirmer','#5b9dff','B'],C:['Estimation · à vérifier','#e0a83a','C'],'?':['Sans niveau','#6b7079','–']};
+let hidFb=new Set(),colorBy=(()=>{try{return localStorage.getItem('cat_colorby')||'type'}catch(e){return 'type'}})();
+const fbOf=n=>{const d=n.data||{};return d._statut=='ok'&&d._statut_user?'A':(d._fiab||'?')};
 let G={nodes:{},edges:[],rev:-1},net,N,E,hidden=new Set(),sel=null,linkFrom=null,saving=false,busy=0,clustered=false,pathSet=null,manualType=false,REAL=0,childOf=null,tab='dossier',onlyKeys=false,noFaux=false,PH='';
 const T=t=>TYPES[t]||TYPES.autre,col=t=>T(t)[0],tn=t=>T(t)[1];
 function toast(h,ms){const t=$('toast');t.innerHTML=h;t.style.display='block';clearTimeout(t._t);if(ms)t._t=setTimeout(()=>t.style.display='none',ms)}
@@ -369,26 +373,32 @@ async function submitAdd(all){const v=$('addv').value.trim();if(!v)return $('add
  childOf=null;$('addv').placeholder=PH;$('addv').value='';manualType=false;render();await save();focusN(id);if(all)runAll(id)}
 /* ---------- rendu */
 function vnode(id,n){const d=deg(id),root=n.type=='enquete',lb=n.short||n.label,inP=pathSet&&pathSet.has(id),dt=n.data||{},st=dt._statut,key=dt._cle;
- const bc=inP?'#e4e9ff':st?ST[st][1]:key?'#e0a83a':col(n.type),sz=root?24:Math.min(16+d*1.4,34)+(key?6:0);
- const hide=hidden.has(n.type)||(root&&!REAL)||(onlyKeys&&!key&&!root)||(noFaux&&st=='faux');
+ const fb=fbOf(n),bc=inP?'#e4e9ff':st?ST[st][1]:key?'#e0a83a':colorBy=='fiab'&&!root?FB[fb][1]:col(n.type),sz=root?24:Math.min(16+d*1.4,34)+(key?6:0);
+ const hide=hidden.has(n.type)||(root&&!REAL)||(onlyKeys&&!key&&!root)||(noFaux&&st=='faux')||(!root&&hidFb.has(fb));
  return {id,label:(lb.length>26?lb.slice(0,24)+'…':lb)+(st&&st!='faux'?'\n'+ST[st][0]:''),shape:'circularImage',image:svgNode(n.type),size:sz,group:n.type,
   color:{border:bc,background:'#0e1028',highlight:{border:'#00e5ff',background:'#0e1028'},hover:{border:'#e4e9ff',background:'#0e1028'}},
   borderWidth:st=='ok'||key||inP?3:1.5,borderWidthSelected:4,shapeProperties:{borderDashes:st=='faux'?[5,4]:false,interpolation:false},
-  font:{color:st=='faux'?'#7480a8':'#e4e9ff',size:root?15:13,face:'Segoe UI,system-ui,sans-serif',strokeWidth:0,background:'rgba(7,8,26,.78)',vadjust:4,multi:false},shadow:{enabled:st!='faux',color:(key?'#e0a83a':st=='ok'?'#4caf7a':col(n.type))+(key||st=='ok'?'cc':'77'),size:key?36:st=='ok'?26:16,x:0,y:0},
+  font:{color:st=='faux'?'#7480a8':'#e4e9ff',size:root?15:13,face:'Segoe UI,system-ui,sans-serif',strokeWidth:0,background:'rgba(7,8,26,.78)',vadjust:4,multi:false},shadow:{enabled:st!='faux',color:(key?'#e0a83a':st=='ok'?'#4caf7a':colorBy=='fiab'&&!root?FB[fb][1]:col(n.type))+(key||st=='ok'?'cc':'77'),size:key?36:st=='ok'?26:16,x:0,y:0},
   hidden:hide,opacity:pathSet&&!inP?.15:(st=='faux'?.5:1)}}
 function render(){const ids=new Set(Object.keys(G.nodes));REAL=[...ids].filter(i=>!i.startsWith('enquete:')).length;
  N.update(Object.entries(G.nodes).map(([id,n])=>vnode(id,n)));N.getIds().forEach(i=>{if(!ids.has(i))N.remove(i)});
  const ek=new Set();E.update(G.edges.filter(e=>G.nodes[e.from]&&G.nodes[e.to]).map(e=>{const id=e.from+'→'+e.to;ek.add(id);const inP=pathSet&&pathSet.has(e.from)&&pathSet.has(e.to);
-  return {id,from:e.from,to:e.to,label:e.label||'',font:{color:'#7480a8',size:10,strokeWidth:3,strokeColor:'#07081a',align:'middle'},color:{color:inP?'#00e5ff':col((G.nodes[e.to]||{}).type),highlight:'#00e5ff',hover:'#e4e9ff',opacity:pathSet&&!inP?.12:(inP?1:.42)},
+  return {id,from:e.from,to:e.to,label:e.label||'',font:{color:'#7480a8',size:10,strokeWidth:3,strokeColor:'#07081a',align:'middle'},color:{color:inP?'#00e5ff':colorBy=='fiab'?FB[e.conf||'?'][1]:col((G.nodes[e.to]||{}).type),highlight:'#00e5ff',hover:'#e4e9ff',opacity:pathSet&&!inP?.12:(inP?1:colorBy=='fiab'?.7:.42)},
    width:inP?3.5:1.4,dashes:e.conf=='C'?[5,5]:false,hoverWidth:1.6,selectionWidth:2.2,arrows:{to:{enabled:true,scaleFactor:.4}},smooth:{type:'continuous',roundness:.35}}}));
  E.getIds().forEach(i=>{if(!ek.has(i))E.remove(i)});
  $('empty').style.display=REAL?'none':'flex';filters();head();panel()}
 function head(){$('casename').textContent=NAME.replace(/_/g,' ');$('caseno').textContent=caseNo();
  const c={};Object.values(G.nodes).forEach(n=>{const s=(n.data||{})._statut;if(s)c[s]=(c[s]||0)+1});
- $('fstat').textContent=`${REAL} entités · ${G.edges.length} liens · ${c.ok||0} confirmées · ${c.check||0} à vérifier`}
+ const f={A:0,B:0,C:0,'?':0};Object.values(G.nodes).forEach(n=>{if(n.type!='enquete')f[fbOf(n)]++});
+ $('fstat').innerHTML=`${REAL} entités · ${G.edges.length} liens · ${c.ok||0} confirmées · ${c.check||0} à vérifier · `+['A','B','C'].map(k=>`<b style="color:${FB[k][1]}">${k} ${f[k]}</b>`).join(' ')}
 function filters(){const F=$('filters'),cnt={};Object.values(G.nodes).forEach(n=>{if(n.type!='enquete')cnt[n.type]=(cnt[n.type]||0)+1});
  F.innerHTML=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]).map(t=>`<div class="chip ${hidden.has(t)?'off':''}" data-t="${t}" title="Clic : masquer / afficher"><span class="dot" style="border-color:${col(t)};color:${col(t)}">${ico(t)}</span>${esc(tn(t))}<b>${cnt[t]}</b></div>`).join('');
- F.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{const t=c.dataset.t;hidden.has(t)?hidden.delete(t):hidden.add(t);render()})}
+ const fc={A:0,B:0,C:0,'?':0};Object.values(G.nodes).forEach(n=>{if(n.type!='enquete')fc[fbOf(n)]++});
+ if(REAL)F.innerHTML+=`<div class="leg">Fiabilité</div>`+Object.keys(FB).filter(k=>fc[k]).map(k=>`<div class="chip fbc ${hidFb.has(k)?'off':''}" data-f="${k}" title="Clic : masquer / afficher ce niveau"><span class="dot fb" style="background:${FB[k][1]};border-color:${FB[k][1]}">${FB[k][2]}</span>${FB[k][0]}<b>${fc[k]}</b></div>`).join('')
+  +`<div class="chip mode" id="cmode" title="Changer ce que montrent les couleurs"><span class="dot" style="border-color:var(--c);color:var(--c)">${ico('fit')}</span>Couleurs : ${colorBy=='fiab'?'fiabilité':'type'}</div>`;
+ F.querySelectorAll('.chip[data-t]').forEach(c=>c.onclick=()=>{const t=c.dataset.t;hidden.has(t)?hidden.delete(t):hidden.add(t);render()});
+ F.querySelectorAll('.chip[data-f]').forEach(c=>c.onclick=()=>{const k=c.dataset.f;hidFb.has(k)?hidFb.delete(k):hidFb.add(k);render()});
+ const cm=$('cmode');if(cm)cm.onclick=()=>{colorBy=colorBy=='fiab'?'type':'fiab';try{localStorage.setItem('cat_colorby',colorBy)}catch(e){}render();toast(colorBy=='fiab'?'Couleurs : niveau de fiabilité':'Couleurs : type d\'élément',2500)}}
 /* ---------- panneau */
 function tabsFor(){return sel&&G.nodes[sel]?[['fiche','Fiche'],['rech','Recherches',(TRANS[G.nodes[sel].type]||[]).length],['liens','Liens',G.edges.filter(e=>e.from==sel||e.to==sel).length]]:[['dossier','Dossier'],['journal','Journal',(G.log||[]).length],['pistes','Pistes']]}
 function panel(){const TB=tabsFor();if(!TB.some(t=>t[0]==tab))tab=TB[0][0];
@@ -399,7 +409,7 @@ function panel(){const TB=tabsFor();if(!TB.some(t=>t[0]==tab))tab=TB[0][0];
  else{const n=G.nodes[sel];B.innerHTML=entHead(sel,n)+(tab=='rech'?rech(sel,n):tab=='liens'?liens(sel):fiche(sel,n))}
  bind(B);$('fsel').textContent=sel?'· sélection : '+(G.nodes[sel].short||G.nodes[sel].label).slice(0,40):''}
 function entHead(id,n){const st=(n.data||{})._statut,nb=deg(id);return `<div class="ent"><div class="av" style="border-color:${col(n.type)};color:${col(n.type)}">${ico(n.type)}</div><div style="min-width:0">
- <h2 class="mono">${esc(n.label)}</h2><div class="meta">${esc(tn(n.type))} · ${nb} lien(s)${n.t?' · '+esc(n.t):''} ${st?`<span class="st ${st}">${ST[st][0]}</span>`:''}</div></div></div>`}
+ <h2 class="mono">${esc(n.label)}</h2><div class="meta">${esc(tn(n.type))} · ${nb} lien(s)${n.t?' · '+esc(n.t):''} ${st?`<span class="st ${st}">${ST[st][0]}</span>`:''}</div>${id.startsWith('enquete:')?'':`<div class="meta" style="margin-top:6px"><span class="st" style="white-space:nowrap;color:${FB[fbOf(n)][1]};border-color:${FB[fbOf(n)][1]}">${FB[fbOf(n)][2]} · ${FB[fbOf(n)][0]}</span></div>`}</div></div>`}
 function fiche(id,n){const dt=n.data||{},u=urlOf(n),st=dt._statut;
  const link=v=>/^https?:\/\//.test(v)?`<a href="${esc(v)}" target="_blank">${esc(v)}</a>`:esc(v).replace(/\n/g,'<br>');
  const det=Object.entries(dt).filter(([k,v])=>!['note'].includes(k)&&!k.startsWith('_')&&v!==''&&v!=null);
@@ -421,6 +431,7 @@ function dossier(){const ns=Object.entries(G.nodes).filter(([,n])=>n.type!='enqu
  const mx=Math.max(1,...Object.values(cnt)),keys=ns.filter(([,n])=>(n.data||{})._cle);
  return `<div class="ent"><div class="av" style="border-color:var(--c);color:var(--c)">${ico('enquete')}</div><div><h2>${esc(NAME.replace(/_/g,' '))}</h2><div class="meta">${caseNo()}${G.created?' · ouvert le '+esc(G.created):''}</div></div></div>
  <h3>Vue d'ensemble</h3><div class="kpi"><div><b>${ns.length}</b>entités</div><div><b>${G.edges.length}</b>liens</div><div><b style="color:var(--ok)">${stc.ok||0}</b>confirmées</div><div><b style="color:var(--ck)">${stc.check||0}</b>à vérifier</div></div>
+ <h3>Fiabilité du dossier</h3>${(()=>{const f={A:0,B:0,C:0,'?':0};ns.forEach(([,n])=>f[fbOf(n)]++);const tot=ns.length||1;return `<div class="fbar">${Object.keys(FB).filter(k=>f[k]).map(k=>`<i style="width:${f[k]/tot*100}%;background:${FB[k][1]}" title="${FB[k][0]} : ${f[k]}"></i>`).join('')}</div><div class="fleg">${Object.keys(FB).filter(k=>f[k]).map(k=>`<span><i style="background:${FB[k][1]}"></i>${FB[k][0]} <b>${f[k]}</b></span>`).join('')}</div>${ns.length?'':'<div class="hint">aucune entité</div>'}`})()}
  <h3>Répartition</h3>${Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]).map(t=>`<div class="bar"><span class="lab">${ico(t,col(t))}${esc(tn(t))}</span><span class="tr"><i style="width:${cnt[t]/mx*100}%;background:${col(t)}"></i></span><b>${cnt[t]}</b></div>`).join('')||'<div class="hint">aucune entité</div>'}
  <h3>Pistes clés (${keys.length})</h3>${keys.map(([id])=>lkRow(id,'')).join('')||'<div class="hint">Marque les éléments importants comme « piste clé » depuis leur fiche.</div>'}
  <h3>Méthode</h3><ol class="steps"><li>Ajoute une cible en haut, puis <b>Ajouter + chercher</b>.</li><li>Clique une entité : <b>Fiche</b>, <b>Recherches</b>, <b>Liens</b>.</li><li>Évalue chaque piste : <b>Confirmé</b>, <b>À vérifier</b> ou <b>Fausse piste</b>.</li><li><b>Options → Rapport d'enquête</b> pour sortir le dossier en PDF.</li></ol>`}
@@ -511,7 +522,12 @@ function start(){N=new vis.DataSet();E=new vis.DataSet();
   if(linkFrom&&id&&id!=linkFrom){const l=prompt('Nature du lien (facultatif, ex : même photo, même email…)','')||'';G.edges.push({from:linkFrom,to:id,label:l});logp('Lien : '+(G.nodes[linkFrom].short||G.nodes[linkFrom].label)+' ↔ '+(G.nodes[id].short||G.nodes[id].label)+(l?' ('+l+')':''),id);linkFrom=null;$('toast').style.display='none';render();save();focusN(id);return}
   if(pathSet){pathSet=null;render()}if(id&&net.isCluster&&net.isCluster(id)){net.openCluster(id);return}
   if(id){focusN(id)}else{sel=null;tab='dossier';panel();dim(null)}});
- net.on('afterDrawing',c=>{const t=Date.now()/1000;for(const id of Object.keys(G.nodes)){const n=G.nodes[id],d=n.data||{},scan=SCAN.has(id);if(!(d._cle||scan||id==sel))continue;const bb=net.getBoundingBox(id);if(!bb||!N.get(id)||N.get(id).hidden)continue;
+ net.on('afterDrawing',c=>{const t=Date.now()/1000;
+  for(const id of Object.keys(G.nodes)){const n=G.nodes[id];if(n.type=='enquete')continue;const v=N.get(id);if(!v||v.hidden)continue;const fb=fbOf(n);if(fb=='?')continue;const bb=net.getBoundingBox(id);if(!bb)continue;
+   const r0=Math.min(bb.right-bb.left,90)/2,cx=(bb.left+bb.right)/2,cy=bb.top+r0,px=cx+r0*.72,py=cy-r0*.72;c.save();c.globalAlpha=(n.data||{})._statut=='faux'?.4:1;
+   c.beginPath();c.arc(px,py,6.5,0,7);c.fillStyle=FB[fb][1];c.fill();c.lineWidth=2;c.strokeStyle='#07081a';c.stroke();
+   c.fillStyle='#07081a';c.font='bold 8.5px system-ui,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(fb,px,py+.5);c.restore()}
+  for(const id of Object.keys(G.nodes)){const n=G.nodes[id],d=n.data||{},scan=SCAN.has(id);if(!(d._cle||scan||id==sel))continue;const bb=net.getBoundingBox(id);if(!bb||!N.get(id)||N.get(id).hidden)continue;
    const cx=(bb.left+bb.right)/2,r0=Math.min(bb.right-bb.left,90)/2,cy=bb.top+r0;c.save();
    if(scan){for(let k=0;k<2;k++){const ph=(t*1.1+k*.5)%1;c.beginPath();c.arc(cx,cy,r0+6+ph*46,0,7);c.strokeStyle='#00e5ff';c.globalAlpha=(1-ph)*.75;c.lineWidth=3;c.stroke()}}
    else if(d._cle){const ph=(Math.sin(t*2.4)+1)/2;c.beginPath();c.arc(cx,cy,r0+9+ph*5,0,7);c.strokeStyle='#e0a83a';c.globalAlpha=.35+ph*.4;c.lineWidth=2.5;c.setLineDash([7,6]);c.lineDashOffset=-t*18;c.stroke()}

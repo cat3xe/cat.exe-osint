@@ -25,6 +25,18 @@ NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → ima
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
+NOUVEAU : GRAPHE EN COULEURS ET 4 OUTILS
+----------------------------------------
+- Graphe d'enquête : pastille A / B / C sur chaque élément, légende « Fiabilité » cliquable (masquer un niveau),
+  bouton « Couleurs : type / fiabilité », liens colorés selon leur niveau, barre de fiabilité dans le tableau de bord.
+- Mesures sur photo : distance d'un objet de taille connue, taille réelle à distance connue, hauteur par l'ombre,
+  toujours avec la fourchette d'erreur.
+- Capture de preuve : copie d'une page ou d'un fichier, empreinte SHA-256, heure UTC, journal chaîné.
+  « Vérifier le journal » montre toute modification faite après la capture.
+- Chronologie : toutes les dates relevées dans le dossier, dans l'ordre, en tableau et en frise.
+- Export des lieux : KML (Google Earth), GeoJSON (QGIS), CSV, épingles colorées selon la fiabilité.
+- Bilan de fiabilité : barre colorée dans le terminal.
+
 NOUVEAU : THÈME FALLOUT
 -----------------------
 - Thème par défaut « fallout » : vert phosphore de vieux terminal, appliqué au terminal, aux cartes et au graphe.
@@ -35,7 +47,7 @@ NOUVEAU : STRUCTURE ET TESTS
 ----------------------------
 - Le programme est découpé en 4 fichiers, à garder ensemble dans le même dossier :
   osint_tool.py (programme principal), geo_core.py (calculs), pages_html.py (pages web), textes.py (tutos, cours).
-- 71 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
+- 96 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
   (réponses simulées, aucun site réel n'est interrogé). Ils tournent aussi sur GitHub à chaque envoi.
 - Réseau plus solide : une requête qui coupe ou un service saturé est retenté une fois automatiquement.
 
