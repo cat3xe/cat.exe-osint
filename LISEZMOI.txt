@@ -27,11 +27,11 @@ NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → ima
 
 NOUVEAU : STRUCTURE ET TESTS
 ----------------------------
-- geo_core.py : tous les calculs purs (distances, soleil, coordonnées, ligne de vue, relèvement, DNS,
-  recoupement de profils, fiabilité IP et photo). Aucun réseau, aucun affichage.
-- osint_tool.py : interface, réseau et rapports. Il importe geo_core.py : garde les deux fichiers ensemble.
-- tests/ : 41 tests automatiques. Pour les lancer : python -m unittest discover -s tests
-  (les tests utilisent des réponses simulées, aucun site réel n'est interrogé).
+- Le programme est découpé en 4 fichiers, à garder ensemble dans le même dossier :
+  osint_tool.py (programme principal), geo_core.py (calculs), pages_html.py (pages web), textes.py (tutos, cours).
+- 71 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
+  (réponses simulées, aucun site réel n'est interrogé). Ils tournent aussi sur GitHub à chaque envoi.
+- Réseau plus solide : une requête qui coupe ou un service saturé est retenté une fois automatiquement.
 
 NOUVEAU : 6 OUTILS DE PRÉCISION
 ---------------------------------------

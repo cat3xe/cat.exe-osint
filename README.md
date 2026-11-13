@@ -35,14 +35,29 @@ Outils dédiés à la vérification : **Même personne ?** (recoupement de profi
 | Utiliser l'outil (Windows) | **`LANCER.bat`** | Installe Python 3.14 et les modules si besoin, puis démarre l'outil |
 | Utiliser l'outil (Mac / Linux) | **`lancer.sh`** | Installe les modules, puis démarre l'outil |
 | Créer le `.exe` (Windows) | **`CREER_EXE.bat`** | Crée le dossier `CatExe-OSINT` avec `CatExe-OSINT.exe` |
-| Lancer les tests | `python -m unittest discover -s tests` | Vérifie les calculs et les contrôles |
+| Lancer les tests | `python osint_tool.py --test` | Vérifie les calculs et les contrôles |
 
-**Ne lance pas** `osint_tool.py` ni `geo_core.py` directement : `osint_tool.py` est le programme principal, lancé par les scripts ci-dessus, et `geo_core.py` est une bibliothèque qu'il charge tout seul. Les deux doivent rester dans le même dossier.
+Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont chargés automatiquement par `osint_tool.py` : il n'y a rien à lancer, il faut seulement les garder dans le même dossier.
 
 ## Structure
-- `osint_tool.py` : interface, recherches réseau, rapports.
-- `geo_core.py` : calculs purs (géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité). À garder dans le même dossier que `osint_tool.py`.
-- `tests/` : tests automatiques (`python -m unittest discover -s tests`). Les réseaux y sont simulés.
+| Fichier | Rôle |
+|---|---|
+| `osint_tool.py` | Programme principal : menus, recherches réseau, rapports |
+| `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
+| `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
+| `textes.py` | Tutos des modules et cours |
+| `tests/` | 71 tests automatiques, réseau simulé |
+
+Les quatre fichiers `.py` doivent rester dans le même dossier.
+
+## Tests
+```
+python -m unittest discover -s tests
+```
+ou `python osint_tool.py --test`. Les tests tournent aussi automatiquement sur GitHub à chaque envoi (onglet Actions).
+
+Ce que les tests couvrent : calculs géographiques contre des valeurs de référence publiées, contrôles anti-faux-positifs (pseudos, emails), recoupement des sources IP, lecture des réponses de services, reprise après coupure réseau, traçabilité du graphe.
+Ce qu'ils ne couvrent pas : les sites réels. Un site qui change son format peut fausser un résultat sans faire échouer un test.
 
 ## Installation
 ```
