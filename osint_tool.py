@@ -208,7 +208,9 @@ def _mix(a, b, t):
 
 
 THEMES = {  # nom : (couleur principale, accent, fond, description)
-    "graphite": ("#d9dce1", "#e0a83a", "#111315", "gris / ambre, sobre · par défaut"),
+    "fallout": ("#1aff80", "#a4ffb0", "#03110a", "vert phosphore, vieux terminal d'abri · par défaut"),
+    "fallout-ambre": ("#ffb641", "#ffd98a", "#120b02", "ambre, vieux terminal d'abri"),
+    "graphite": ("#d9dce1", "#e0a83a", "#111315", "gris / ambre, sobre"),
     "cyber": ("#00e5ff", "#b388ff", "#07081a", "cyan / violet néon"),
     "nord": ("#88c0d0", "#b48ead", "#1c2029", "bleu polaire / mauve (Nord)"),
     "tokyo": ("#7aa2f7", "#bb9af7", "#16161e", "bleu nuit / lilas (Tokyo Night)"),
@@ -236,7 +238,7 @@ THEMES = {  # nom : (couleur principale, accent, fond, description)
     "sunset": ("#ff7e5f", "#feb47b", "#120806", "coucher de soleil"),
     "aurora": ("#00ffa3", "#dc1fff", "#05040f", "aurore boréale"),
 }
-DEFAULT_THEME = "graphite"
+DEFAULT_THEME = "fallout"
 _BASE = {"p": "#00e5ff", "a": "#b388ff", "bg": "#07081a"}
 THEME_MAP = {}
 

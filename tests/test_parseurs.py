@@ -55,6 +55,20 @@ class Formats(unittest.TestCase):
         self.assertEqual(r.get("IBAN"), ["GB82WEST12345698765432"])
 
 
+class Themes(unittest.TestCase):
+    def test_tous_les_themes_ont_des_couleurs_valides(self):
+        import re
+        for nom, (p, acc, fond, desc) in O.THEMES.items():
+            with self.subTest(theme=nom):
+                for c in (p, acc, fond):
+                    self.assertRegex(c, r"^#[0-9a-f]{6}$")
+                self.assertTrue(desc)
+                self.assertTrue(all(re.fullmatch(r"#[0-9a-f]{6}", v) for v in O.theme_colors(nom).values()))
+
+    def test_theme_par_defaut_existe(self):
+        self.assertIn(O.DEFAULT_THEME, O.THEMES)
+
+
 class Identifiants(unittest.TestCase):
     def test_snowflake_discord_exemple_officiel(self):
         # exemple de la documentation Discord : 175928847299117063 → 30/04/2016 11:18:25 UTC

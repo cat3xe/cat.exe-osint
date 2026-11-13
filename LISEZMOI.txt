@@ -25,6 +25,12 @@ NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → ima
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
+NOUVEAU : THÈME FALLOUT
+-----------------------
+- Thème par défaut « fallout » : vert phosphore de vieux terminal, appliqué au terminal, aux cartes et au graphe.
+- Variante « fallout-ambre ». Pour changer : Réglages → Thème (29 thèmes au total).
+- Si tu avais déjà choisi un thème, il est conservé.
+
 NOUVEAU : STRUCTURE ET TESTS
 ----------------------------
 - Le programme est découpé en 4 fichiers, à garder ensemble dans le même dossier :
