@@ -25,6 +25,18 @@ NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → ima
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
+NOUVEAU : MOINS DE FAUX POSITIFS, IP EN LOT
+-------------------------------------------
+- Pseudo : deux moteurs au lieu d'un (WhatsMyName + la base de Sherlock), environ 870 sites distincts.
+  Un compte vu par les deux bases, ou dont la page contient bien le pseudo, est noté « confiance forte ».
+- Trois filtres avant d'afficher un compte : forme du pseudo acceptée par le site, pas de page anti-robot,
+  et le site doit répondre « absent » à un pseudo inexistant.
+- IP en lot : donne un journal de connexions ou colle un texte, l'outil sort toutes les IP publiques,
+  les recoupe sur 4 bases, résume par pays et opérateur, signale Tor / VPN / hébergeurs, exporte CSV + carte.
+- Sources pro : UserSearch, Web-Check, Exploit-DB (tape un numéro de faille, ex. CVE-2021-44228),
+  et la liste des outils à installer à part (h8mail, GitFive, Toutatis, DaProfiler) avec ce que chacun apporte.
+- IP lookup : lien Exploit-DB pour chaque faille trouvée sur l'adresse.
+
 NOUVEAU : MISE À JOUR AUTOMATIQUE
 ---------------------------------
 - Au démarrage, l'outil regarde le dernier commit du dépôt GitHub et compare chaque fichier au tien.
@@ -79,7 +91,7 @@ NOUVEAU : STRUCTURE ET TESTS
 ----------------------------
 - Le programme est découpé en 4 fichiers, à garder ensemble dans le même dossier :
   osint_tool.py (programme principal), geo_core.py (calculs), pages_html.py (pages web), textes.py (tutos, cours).
-- 133 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
+- 161 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
   (réponses simulées, aucun site réel n'est interrogé). Ils tournent aussi sur GitHub à chaque envoi.
 - Réseau plus solide : une requête qui coupe ou un service saturé est retenté une fois automatiquement.
 

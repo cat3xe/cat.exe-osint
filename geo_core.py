@@ -803,3 +803,125 @@ def update_plan(tree, read_local):
         elif git_blob_sha(local) != f["sha"] and git_blob_sha(local.replace(b"\r\n", b"\n")) != f["sha"]:
             plan.append((p, f["sha"], "modifié"))
     return plan
+
+
+# ============================================================ MOTEUR SHERLOCK (règles de détection, sans réseau)
+# Pages d'attente ou de blocage : elles répondent « 200 » à tout et fabriquent des faux positifs
+WAF_MARKS = ("just a moment...", "attention required! | cloudflare", "cf-browser-verification", "cf-challenge", "/cdn-cgi/challenge-platform",
+             "checking your browser before accessing", "access denied", "request unsuccessful. incapsula", "captcha-delivery.com", "px-captcha",
+             "are you a robot", "unusual traffic", "ddos protection by")
+
+
+def looks_blocked(text):
+    """La réponse est-elle une page anti-robot plutôt que la vraie page du site ?"""
+    t = str(text or "")[:20000].lower()
+    return any(m in t for m in WAF_MARKS)
+
+
+def sherlock_valid(site, username):
+    """Le pseudo respecte-t-il la forme imposée par ce site ? (sinon le compte ne peut pas exister : inutile d'interroger le site)"""
+    rx = site.get("regexCheck")
+    if not rx:
+        return True
+    try:
+        return re.search(rx, username) is not None
+    except re.error:
+        return True
+
+
+def sherlock_verdict(site, status, text, username=""):
+    """Applique la règle Sherlock d'un site à une réponse. Renvoie True (compte présent), False (absent) ou None (réponse inexploitable).
+    status = code HTTP · text = corps de la réponse."""
+    if status is None:
+        return None
+    if status in (403, 429, 503) or looks_blocked(text):
+        return None
+    kind = site.get("errorType")
+    if kind == "message":
+        errs = site.get("errorMsg")
+        errs = [errs] if isinstance(errs, str) else list(errs or [])
+        if not errs:
+            return None
+        if any(e and e in (text or "") for e in errs):
+            return False
+        return True if 200 <= status < 300 else None
+    if kind == "status_code":
+        codes = site.get("errorCode")
+        codes = [codes] if isinstance(codes, int) else list(codes or [])
+        if status in codes:
+            return False
+        return 200 <= status < 300
+    if kind == "response_url":
+        return 200 <= status < 300  # la requête est faite sans suivre les redirections
+    return None
+
+
+def echoes(username, text, url=""):
+    """Le pseudo apparaît-il vraiment dans la page ou dans son adresse finale ? Une vraie page de profil le contient presque toujours."""
+    u = str(username or "").lower()
+    if len(u) < 3:
+        return False
+    hay = (str(text or "")[:600000] + " " + str(url or "")).lower()
+    return re.search(r"(?<![a-z0-9])" + re.escape(u) + r"(?![a-z0-9])", hay) is not None
+
+
+def host_key(url):
+    """Nom de site comparable entre deux bases (« https://www.GitHub.com/x » → « github.com »)."""
+    m = re.match(r"^[a-z]+://([^/?#]+)", str(url or "").lower())
+    h = (m.group(1) if m else "").split("@")[-1].split(":")[0]
+    return h[4:] if h.startswith("www.") else h
+
+
+def merge_hits(hits):
+    """Fusionne les résultats de plusieurs moteurs. hits : [{site, cat, url, engine, echo}].
+    Renvoie une ligne par site : {site, cat, url, engines (triés), echo, conf}.
+    conf = « forte » si deux moteurs indépendants sont d'accord ou si la page contient le pseudo, sinon « moyenne »."""
+    by = {}
+    for h in hits:
+        k = host_key(h.get("url")) or str(h.get("site", "")).lower()
+        e = by.setdefault(k, {"site": h.get("site"), "cat": h.get("cat") or "", "url": h.get("url"), "engines": set(), "echo": False})
+        e["engines"].add(h.get("engine"))
+        e["echo"] = e["echo"] or bool(h.get("echo"))
+        e["cat"] = e["cat"] or h.get("cat") or ""
+    out = []
+    for e in by.values():
+        e["engines"] = sorted(x for x in e["engines"] if x)
+        e["conf"] = "forte" if len(e["engines"]) >= 2 or e["echo"] else "moyenne"
+        out.append(e)
+    out.sort(key=lambda e: (e["conf"] != "forte", str(e["site"]).lower()))
+    return out
+
+
+# ============================================================ ADRESSES IP EN LOT
+def extract_ips(text, limit=None):
+    """Adresses IP publiques trouvées dans un texte, sans doublon, dans l'ordre d'apparition.
+    Les adresses privées, locales ou réservées sont écartées (elles n'existent que dans un réseau interne)."""
+    import ipaddress
+    out, seen = [], set()
+    cand = re.findall(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])|(?<![0-9a-fA-F:])(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(?![0-9a-fA-F:])", str(text or ""))
+    for c in cand:
+        try:
+            ip = ipaddress.ip_address(c)
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_multicast or ip.is_link_local or ip.is_unspecified:
+            continue
+        s = str(ip)
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+            if limit and len(out) >= limit:
+                break
+    return out
+
+
+def ip_summary(rows):
+    """rows : [{ip, cc, country, asn, isp, level, flags}]. Renvoie les décomptes par pays, par opérateur et par signalement."""
+    by_cc, by_asn, flags = Counter(), Counter(), Counter()
+    for r in rows:
+        by_cc[r.get("country") or r.get("cc") or "inconnu"] += 1
+        by_asn[(f"AS{r['asn']} " if r.get("asn") else "") + str(r.get("isp") or "inconnu")] += 1
+        for f in r.get("flags") or []:
+            flags[f] += 1
+    return {"total": len(rows), "pays": by_cc.most_common(), "operateurs": by_asn.most_common(), "signalements": flags.most_common(),
+            "surs": sum(1 for r in rows if r.get("level") == "A")}

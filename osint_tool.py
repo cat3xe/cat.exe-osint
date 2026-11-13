@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, sherlock_valid, sherlock_verdict, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -6396,7 +6396,9 @@ def mod_iplookup():
         pages.append(kv([("Sites sur la même IP", "\n".join(res["rev"][:60]) + (f"\n… +{len(res['rev']) - 60}" if len(res["rev"]) > 60 else ""))], f"🌐 Reverse IP · {len(res['rev'])} domaine(s)"))
     pages.append(kv([("AbuseIPDB", f"https://www.abuseipdb.com/check/{ip}"), ("Shodan", f"https://www.shodan.io/host/{ip}"), ("Censys", f"https://search.censys.io/hosts/{ip}"),
                      ("VirusTotal", f"https://www.virustotal.com/gui/ip-address/{ip}"), ("GreyNoise", f"https://viz.greynoise.io/ip/{ip}"),
-                     ("BGP.tools", f"https://bgp.tools/prefix/{ip}"), ("IPinfo", f"https://ipinfo.io/{ip}")], "🔗 Aller plus loin"))
+                     ("BGP.tools", f"https://bgp.tools/prefix/{ip}"), ("IPinfo", f"https://ipinfo.io/{ip}")]
+                    + [(f"Exploit-DB · {cve}", f"https://www.exploit-db.com/search?cve={cve[4:]}") for cve in (s.get("vulns") or [])[:5] if str(cve).upper().startswith("CVE-")],
+                    "🔗 Aller plus loin"))
     view_pages(f"IP LOOKUP · {ip}", pages)
     add_report("IP lookup", ip, f"{geo['country']} {geo['city'] or ''} · {first('isp')} · AS{rasn.get('asn') or first('asn')} · ports {s.get('ports') if s else '?'}"
                + (" · TOR" if res.get("tor") else "") + (" · VPN/proxy" if a.get("proxy") else "") + f" · fiabilité : {geo['resume']}")
@@ -6405,6 +6407,82 @@ def mod_iplookup():
         mk = [{"lat": lat, "lon": lon, "label": f"<b>{ip}</b><br>{escape_html(str(first('isp') or ''))}<br>zone de ± {geo['radius_km']:.0f} km"}]
         mk += [{"lat": v["lat"], "lon": v["lon"], "label": escape_html(f"{n} : {v.get('city') or '?'}"), "c": "#7aa2ff", "s": 5} for n, v in S.items() if v.get("lat") is not None]
         save_open("ip", quick_map(f"IP {ip} · {len(S)} sources", mk, circles=[{"lat": lat, "lon": lon, "r": geo["radius_km"] * 1000}]))
+    pause()
+
+
+# ------------------------------------------------------------ 🧮 IP EN LOT (journal de connexions, liste, texte collé)
+IP_BULK_MAX = 60
+
+
+def ip_bulk_rows(ips, progress=None):
+    """Recoupe chaque IP sur les bases de géolocalisation. Renvoie [{ip, cc, country, city, asn, isp, level, resume, lat, lon, flags}]."""
+    tor = tor_exits() or set()
+    rows = []
+
+    def one(ip):
+        c = ip_geo(ip)
+        S = c["sources"]
+        first = lambda k: next((x.get(k) for x in S.values() if x.get(k) not in (None, "")), None)
+        a = S.get("ip-api.com") or {}
+        flags = [n for n, on in (("Tor", ip in tor), ("VPN / proxy", a.get("proxy")), ("hébergeur", a.get("hosting")), ("mobile", a.get("mobile"))) if on]
+        return {"ip": ip, "cc": c["cc"], "country": c["country"], "city": c["city"] if c.get("ville_sure") else None, "asn": first("asn"), "isp": first("isp"),
+                "level": c["level"], "resume": c["resume"], "lat": c["lat"], "lon": c["lon"], "radius": c["radius_km"], "flags": flags, "n": c["n"]}
+    with _TPE(6) as ex:
+        for k, r in enumerate(ex.map(one, ips), 1):
+            rows.append(r)
+            if progress:
+                progress(k)
+    return rows
+
+
+def mod_ipbulk():
+    con.rule(f"[{G}]🧮 IP EN LOT · journal, liste, texte collé")
+    con.print(f"[{M}]Donne un fichier (journal de connexions, export, CSV) ou colle un texte : l'outil en sort toutes les adresses IP publiques, "
+              f"recoupe chacune sur 4 bases, puis résume par pays et par opérateur. {IP_BULK_MAX} adresses au maximum par passe.")
+    c = select("D'où viennent les adresses ?", [{"label": "📄 Un fichier", "value": "f"}, {"label": "📋 Un texte collé", "value": "t"}, {"label": "← Retour", "value": None}])
+    if c is None:
+        return
+    if c == "f":
+        f = ask_path("Glisse le fichier ici (ou colle son chemin)")
+        if not f:
+            return pause()
+        try:
+            text = Path(f).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            log("Fichier illisible.", R)
+            return pause()
+    else:
+        text = ask_multiline("Colle le texte (ligne vide pour terminer)")
+    ips_all = extract_ips(text)
+    if not ips_all:
+        log("Aucune adresse IP publique dans ce texte (les adresses privées comme 192.168.x.x sont ignorées).", Y)
+        return pause()
+    ips = ips_all[:IP_BULK_MAX]
+    if len(ips_all) > IP_BULK_MAX:
+        log(f"{len(ips_all)} adresses trouvées : seules les {IP_BULK_MAX} premières sont traitées (limites des services gratuits).", Y)
+    with Progress(TextColumn(f"[{G}]Recoupement"), BarColumn(complete_style="#00e5ff"), TaskProgressColumn(), console=con, transient=True) as pr:
+        task = pr.add_task("", total=len(ips))
+        rows = ip_bulk_rows(ips, lambda k: pr.update(task, completed=k))
+    sm = ip_summary(rows)
+    lv = lambda r: Text("pays sûr" if r["level"] == "A" else "non recoupé" if r["n"] else "sans réponse", style=FIAB_COL["A"] if r["level"] == "A" else FIAB_COL["C"])
+    con.print(kv([("Adresses traitées", f"{sm['total']} · pays recoupé pour {sm['surs']}"),
+                  ("Par pays", " · ".join(f"{k} {v}" for k, v in sm["pays"][:10])), ("Par opérateur", "\n".join(f"{v} × {k}" for k, v in sm["operateurs"][:8])),
+                  ("Signalements", " · ".join(f"{k} {v}" for k, v in sm["signalements"]) or "aucun"),
+                  ("Lecture", "Le pays est fiable quand les bases sont d'accord. Une IP Tor, VPN ou d'hébergeur montre le serveur relais, pas l'utilisateur.")], "🧮 Résumé", G))
+    table_pages("IP EN LOT", ["IP", "Pays", "Ville (si recoupée)", "Opérateur", "Signalements", "Fiabilité"],
+                [(r["ip"], f"{r['country'] or '?'} ({r['cc'] or '?'})", r["city"] or "—", (f"AS{r['asn']} " if r["asn"] else "") + str(r["isp"] or "?"), ", ".join(r["flags"]) or "—", lv(r)) for r in rows])
+    d = OUT / "exports"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"ip_lot_{stamp()}.csv"
+    f.write_text("﻿ip;pays;code;ville;asn;operateur;signalements;fiabilite\n" + "\n".join(
+        ";".join(str(x if x is not None else "").replace(";", ",") for x in (r["ip"], r["country"], r["cc"], r["city"], r["asn"], r["isp"], ", ".join(r["flags"]), r["resume"])) for r in rows), encoding="utf-8")
+    log(f"Tableau enregistré : {f}", G)
+    add_report("mod_ipbulk", f"{sm['total']} IP", " · ".join(f"{k} {v}" for k, v in sm["pays"][:10]) + f" · pays recoupé pour {sm['surs']}/{sm['total']}")
+    pts = [r for r in rows if r["lat"] is not None]
+    if pts and ask_yes("Voir les adresses sur une carte ?", True):
+        save_open("ip_lot", quick_map(f"{len(pts)} IP", [{"lat": r["lat"], "lon": r["lon"], "s": 6, "c": "#4caf7a" if r["level"] == "A" else "#e0a83a",
+                                                             "label": f"<b>{r['ip']}</b><br>{escape_html(str(r['isp'] or ''))}<br>zone de ± {r['radius']:.0f} km" + (f"<br>{escape_html(', '.join(r['flags']))}" if r["flags"] else "")} for r in pts],
+                                      "<p>Chaque point est la zone déclarée par l'opérateur, jamais l'adresse d'une personne. Vert : pays recoupé · orange : non recoupé.</p>"))
     pause()
 
 
@@ -6798,7 +6876,7 @@ def wmn_data():
 
 
 def _wmn_raw(s, u):
-    """True / False, ou None si le site n'a pas répondu."""
+    """(compte présent ?, pseudo visible dans la page ?), ou None si le site n'a pas répondu."""
     url = s["uri_check"].replace("{account}", u)
     try:
         if s.get("post_body"):
@@ -6807,26 +6885,36 @@ def _wmn_raw(s, u):
             r = HTTP.get(url, headers=s.get("headers") or {}, timeout=8, allow_redirects=True)
     except Exception:
         return None
+    if looks_blocked(r.text):
+        return None  # page anti-robot : elle répond pareil à tout le monde
     ok = r.status_code == s.get("e_code") and s.get("e_string", "") in r.text
     if ok and s.get("m_string") and s["m_string"] in r.text:
         ok = False
-    return ok
+    return ok, echoes(u, r.text, getattr(r, "url", ""))
 
 
 _WMN_CTRL = {}
 
 
-def wmn_check(s, u):
-    """Lien du profil si le compte existe ET que le site répond « absent » à un pseudo de contrôle (sinon None)."""
-    if not _wmn_raw(s, u):
+def wmn_hit(s, u):
+    """{"url", "echo"} si le compte existe ET que le site répond « absent » à un pseudo de contrôle, sinon None."""
+    res = _wmn_raw(s, u)
+    if not res or not res[0]:
         return None
     k = s.get("name")
     if k not in _WMN_CTRL:
-        _WMN_CTRL[k] = _wmn_raw(s, _CTRL_NAME)
+        c = _wmn_raw(s, _CTRL_NAME)
+        _WMN_CTRL[k] = None if c is None else c[0]
     if _WMN_CTRL[k] is not False:  # le site dit « trouvé » à tout, ou n'a pas pu être contrôlé : résultat écarté
         _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
         return None
-    return (s.get("uri_pretty") or url_of(s, u)).replace("{account}", u)
+    return {"url": (s.get("uri_pretty") or url_of(s, u)).replace("{account}", u), "echo": res[1]}
+
+
+def wmn_check(s, u):
+    """Lien du profil si le compte est confirmé (voir wmn_hit), sinon None."""
+    h = wmn_hit(s, u)
+    return h["url"] if h else None
 
 
 _WMN_STATS = {}
@@ -6836,42 +6924,125 @@ def url_of(s, u):
     return s["uri_check"].replace("{account}", u)
 
 
+# ------------------------------------------------------------ SECOND MOTEUR : base Sherlock (licence MIT, sherlock-project/sherlock)
+SHERLOCK_URL = "https://raw.githubusercontent.com/sherlock-project/sherlock/master/sherlock_project/resources/data.json"
+
+
+def sherlock_data():
+    """Base de sites de Sherlock, gardée 7 jours en cache. Renvoie {nom: règle}. Dictionnaire vide si elle est indisponible."""
+    CACHE.mkdir(exist_ok=True)
+    f = CACHE / "sherlock-data.json"
+    if not f.exists() or time.time() - f.stat().st_mtime > 7 * 86400:
+        try:
+            r = get(SHERLOCK_URL, 30)
+            r.raise_for_status()
+            json.loads(r.content)
+            f.write_bytes(r.content)
+        except Exception:
+            if not f.exists():
+                return {}
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return {k: v for k, v in d.items() if isinstance(v, dict) and v.get("url") and not v.get("isNSFW")}
+
+
+def _sherlock_raw(site, u):
+    """(verdict True / False / None, pseudo visible dans la page ?)"""
+    if not sherlock_valid(site, u):
+        return False, False
+    url = (site.get("urlProbe") or site["url"]).replace("{}", u)
+    payload = site.get("request_payload")
+    try:
+        kw = {"headers": site.get("headers") or {}, "timeout": 8, "allow_redirects": site.get("errorType") != "response_url"}
+        method = (site.get("request_method") or "GET").upper()
+        if method == "POST" or payload:
+            r = HTTP.post(url, json=json.loads(json.dumps(payload).replace("{}", u)) if payload else None, **kw)
+        else:
+            r = HTTP.get(url, **kw)
+    except Exception:
+        return None, False
+    return sherlock_verdict(site, r.status_code, r.text, u), echoes(u, r.text, getattr(r, "url", ""))
+
+
+_SH_CTRL = {}
+
+
+def sherlock_hit(name, site, u):
+    """{"url", "echo"} si la règle Sherlock dit « présent » pour ce pseudo et « absent » pour le pseudo de contrôle, sinon None."""
+    v, echo = _sherlock_raw(site, u)
+    if v is not True:
+        return None
+    if name not in _SH_CTRL:
+        _SH_CTRL[name] = _sherlock_raw(site, _CTRL_NAME)[0]
+    if _SH_CTRL[name] is not False:
+        _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
+        return None
+    return {"url": site["url"].replace("{}", u), "echo": echo}
+
+
+def pseudo_scan(u, progress=None):
+    """Cherche un pseudo avec les deux moteurs (WhatsMyName + Sherlock) et fusionne.
+    Renvoie (lignes fusionnées — voir merge_hits —, nombre de sites interrogés, nombre de résultats écartés)."""
+    try:
+        wmn = [s for s in wmn_data() if s.get("valid") is not False and "nsfw" not in s.get("cat", "").lower()]
+    except Exception:
+        wmn = []
+    sh = sherlock_data()
+    if not wmn and not sh:
+        raise RuntimeError("les bases de sites (WhatsMyName, Sherlock) sont injoignables : vérifie ta connexion")
+    _WMN_STATS.clear()
+    jobs = [("WhatsMyName", s["name"], s) for s in wmn] + [("Sherlock", n, s) for n, s in sh.items()]
+    hits, done = [], 0
+
+    def one(j):
+        eng, name, s = j
+        h = wmn_hit(s, u) if eng == "WhatsMyName" else sherlock_hit(name, s, u)
+        return eng, name, s, h
+    with _TPE(48) as ex:
+        for eng, name, s, h in ex.map(one, jobs):
+            done += 1
+            if h:
+                hits.append({"site": name, "cat": s.get("cat", "") if eng == "WhatsMyName" else "", "url": h["url"], "engine": eng, "echo": h["echo"]})
+            if progress:
+                progress(done, len(jobs), len(hits))
+    return merge_hits(hits), len(jobs), _WMN_STATS.get("drop", 0)
+
+
 def mod_wmn(u=None):
-    con.rule(f"[{G}]🌐 PSEUDO SUR 600+ SITES (WhatsMyName)")
+    con.rule(f"[{G}]🌐 PSEUDO SUR 850+ SITES (WhatsMyName + Sherlock)")
     u = u or ask_text("Pseudo").strip().lstrip("@")
     if not u:
         return
     try:
-        sites = [s for s in wmn_data() if s.get("valid") is not False and "nsfw" not in s.get("cat", "").lower()]
+        with Progress(TextColumn(f"[{G}]{escape(u)}"), BarColumn(complete_style="#00e5ff", finished_style="#b388ff"), TaskProgressColumn(),
+                      TextColumn("{task.description}"), console=con, transient=True) as pr:
+            t = pr.add_task("", total=1)
+            rows, n_sites, dropped = pseudo_scan(u, lambda d, tot, k: pr.update(t, completed=d, total=tot, description=f"[{P}]{k} trouvé(s)"))
     except Exception as e:
         log(str(e), R)
         return pause()
-    hits = []
-    _WMN_STATS.clear()
-    with Progress(TextColumn(f"[{G}]{escape(u)}"), BarColumn(complete_style="#00e5ff", finished_style="#b388ff"), TaskProgressColumn(),
-                  TextColumn("{task.description}"), console=con, transient=True) as pr:
-        t = pr.add_task("", total=len(sites))
-        with _TPE(48) as ex:
-            fut = {ex.submit(wmn_check, s, u): s for s in sites}
-            for f in _asc(fut):
-                s = fut[f]
-                res = f.result()
-                if res:
-                    hits.append((s["name"], s.get("cat", ""), res))
-                pr.update(t, advance=1, description=f"[{P}]{len(hits)} trouvé(s)")
-    hits.sort(key=lambda h: (h[1], h[0].lower()))
-    log(f"{len(hits)} compte(s) confirmé(s) sur {len(sites)} sites.", G)
-    if _WMN_STATS.get("drop"):
-        con.print(f"[{M}]{_WMN_STATS['drop']} résultat(s) écarté(s) : ces sites répondent « trouvé » même pour un pseudo inexistant (faux positifs).")
-    if hits:
-        table_pages(f"WHATSMYNAME · {u}", ["Site", "Catégorie", "Lien"], hits)
-        add_report("WhatsMyName", u, "\n".join(f"{a} ({b}) : {c}" for a, b, c in hits))
+    forts = [r for r in rows if r["conf"] == "forte"]
+    log(f"{len(rows)} compte(s) confirmé(s) sur {n_sites} vérifications · {len(forts)} en confiance forte.", G)
+    if dropped:
+        con.print(f"[{M}]{dropped} résultat(s) écarté(s) : ces sites répondent « trouvé » même pour un pseudo inexistant, ou n'ont pas pu être contrôlés (faux positifs).")
+    if rows:
+        lab = {"forte": "forte", "moyenne": "moyenne"}
+        table_pages(f"PSEUDO · {u}", ["Site", "Catégorie", "Confiance", "Pourquoi", "Lien"],
+                    [(r["site"], r["cat"], Text(lab[r["conf"]], style=FIAB_COL["A"] if r["conf"] == "forte" else FIAB_COL["C"]),
+                      " + ".join(x for x in ("2 moteurs d'accord" if len(r["engines"]) >= 2 else r["engines"][0] if r["engines"] else "", "pseudo présent dans la page" if r["echo"] else "") if x),
+                      r["url"]) for r in rows])
+        con.print(f"[{M}]Confiance forte : deux bases indépendantes sont d'accord, ou la page contient bien le pseudo. Confiance moyenne : le site a répondu oui, "
+                  "mais le pseudo n'apparaît pas dans la page (site en JavaScript, ou réponse à vérifier à la main).")
+        add_report("WhatsMyName", u, "\n".join(f"{r['site']} ({r['cat'] or 'confiance ' + r['conf']}) : {r['url']}" for r in rows))
         if ask_yes("Créer une page HTML cliquable ?"):
-            rows = "".join(f"<tr><td>{escape_html(a)}</td><td>{escape_html(b)}</td><td><a href='{escape_html(c)}' target=_blank>{escape_html(c)}</a></td></tr>" for a, b, c in hits)
-            f = OUT / f"wmn_{u}_{stamp()}.html"
+            trs = "".join(f"<tr><td>{escape_html(r['site'])}</td><td>{escape_html(r['cat'])}</td><td style='color:{'#4caf7a' if r['conf'] == 'forte' else '#e0a83a'}'>{r['conf']}</td>"
+                          f"<td><a href='{escape_html(r['url'])}' target=_blank>{escape_html(r['url'])}</a></td></tr>" for r in rows)
+            f = OUT / f"pseudo_{re.sub(r'[^A-Za-z0-9._-]', '_', u)}_{stamp()}.html"
             f.write_text(f"<!doctype html><meta charset=utf-8><title>{escape_html(u)}</title><style>body{{background:#07081a;color:#e4e9ff;font:14px system-ui;padding:20px}}"
                          f"a{{color:#00e5ff}}td{{padding:6px;border-bottom:1px solid #2b3158}}h1{{color:#b388ff;font-family:monospace}}</style>"
-                         f"<h1>CAT.exe // {escape_html(u)} · {len(hits)} comptes</h1><table>{rows}</table>", encoding="utf-8")
+                         f"<h1>CAT.exe // {escape_html(u)} · {len(rows)} comptes ({len(forts)} en confiance forte)</h1><table>{trs}</table>", encoding="utf-8")
             open_file(f)
     con.print(f"[{M}]⚠ Un compte au même pseudo n'est pas forcément la même personne : recoupe (photo, bio, liens).")
     pause()
@@ -7464,7 +7635,7 @@ GTYPES = {"enquete": ("#d4a35a", "Enquête", "🧬"), "pseudo": ("#5aa9e6", "Pse
           "note": ("#c9c9c9", "Note", "📝"), "autre": ("#8a8f96", "Autre", "◆")}
 
 TRANSFORMS = {
-    "pseudo": [("social", "Chercher sur 17 réseaux sociaux"), ("wmn", "Chercher sur 600+ sites (≈ 20 s)")],
+    "pseudo": [("social", "Chercher sur 17 réseaux sociaux"), ("wmn", "Chercher sur 850+ sites, 2 moteurs (≈ 30 s)")],
     "compte": [("pseudo_of", "Extraire le pseudo"), ("iocs", "Indices de la page du profil")],
     "email": [("gravatar", "Profil Gravatar"), ("email_user", "Pseudo depuis l'email"), ("email_dom", "Domaine + serveur mail"), ("breach_dom", "Fuites du domaine")],
     "ip": [("ip", "IP lookup (géo, opérateur, ports)"), ("revip", "Sites sur la même IP")],
@@ -7506,15 +7677,12 @@ def graph_transform(e, nid, t):
                       src="auteur d'un commit dans l'activité du compte (peut être un collaborateur)")
         msg = f"{len(found)} profil(s)"
     elif t == "wmn":
-        sites = [s for s in wmn_data() if s.get("valid") is not False and "nsfw" not in s.get("cat", "").lower()]
-        _WMN_STATS.clear()
-        with _TPE(48) as ex:
-            for s, res in zip(sites, ex.map(lambda s: wmn_check(s, lab), sites)):
-                if res:
-                    gnode("compte", f"{s['name']} · {lab}", {"url": res, "catégorie": s.get("cat")}, nid, "", s["name"],
-                          fiab="B", src="WhatsMyName (existence confirmée par test de contrôle)")
-        if _WMN_STATS.get("drop"):
-            msg = f"{_WMN_STATS['drop']} faux positif(s) écarté(s)"
+        rows, n_sites, dropped = pseudo_scan(lab)
+        for r in rows:
+            gnode("compte", f"{r['site']} · {lab}", {"url": r["url"], "catégorie": r["cat"], "confiance": r["conf"] + (" · 2 moteurs d'accord" if len(r["engines"]) >= 2 else "")
+                                                     + (" · pseudo présent dans la page" if r["echo"] else "")}, nid, "", r["site"],
+                  fiab="B", src=" + ".join(r["engines"]) + " (existence confirmée par test de contrôle)")
+        msg = f"{len(rows)} compte(s), dont {sum(1 for r in rows if r['conf'] == 'forte')} en confiance forte" + (f" · {dropped} faux positif(s) écarté(s)" if dropped else "")
     elif t == "pseudo_of":
         u = lab.split(" · ", 1)[-1] if " · " in lab else (re.search(r"[/@]([\w.-]{2,40})/?$", url or "") or [None, None])[1]
         if u:
@@ -7659,7 +7827,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -8521,12 +8689,25 @@ def mod_autoscan():
 
 
 # ---------- 🗂 Sources pro (Censys, Hunter, IntelX, DeHashed, Epieos, OSINT Framework…)
+EXT_TOOLS = [
+    ("Sherlock", "déjà intégré : sa base de sites sert de second moteur dans « Pseudo sur 1000+ sites »"),
+    ("IPinfo CLI", "déjà couvert : « IP lookup » interroge ipinfo.io, « IP en lot » traite une liste et résume par pays / opérateur"),
+    ("h8mail · github.com/khast3x/h8mail", "email → fuites, avec tes propres clés d'API (HIBP, Snusbase, Leak-Lookup…). En plus de « Email », qui utilise les sources gratuites"),
+    ("GitFive · github.com/mxrch/GitFive", "compte GitHub → emails, noms et pseudos liés. Demande de se connecter avec un compte GitHub. En plus de « Lookup réseaux sociaux »"),
+    ("Toutatis · github.com/megadose/toutatis", "compte Instagram → email et téléphone partiellement masqués. Demande un identifiant de session Instagram"),
+    ("DaProfiler · github.com/TheRealDalunacrobate/DaProfiler", "nom + prénom → profils publics en France. En plus de « Recherche de personne »"),
+    ("Rappel", "Ces outils demandent une connexion ou des clés : à n'utiliser que sur tes propres comptes ou dans un cadre autorisé."),
+]
+
+
 def mod_prosrc():
     con.rule(f"[{G}]🗂 SOURCES PRO")
     v = ask_text("Cible (email, domaine, IP, pseudo, téléphone…)").strip()
     if not v:
         return
     t, q = target_type(v), _q(v, safe="")
+    if re.fullmatch(r"(?i)CVE-\d{4}-\d{4,7}", v):
+        t = "faille"
     L = []
     if t == "email":
         L += [("Epieos (compte Google, Skype…)", f"https://epieos.com/?q={q}"), ("Hunter (vérifier l'email)", f"https://hunter.io/email-verifier/{q}"),
@@ -8539,11 +8720,17 @@ def mod_prosrc():
     if t == "ip":
         L += [("Censys", f"https://search.censys.io/hosts/{v}"), ("Shodan", f"https://www.shodan.io/host/{v}"), ("GreyNoise", f"https://viz.greynoise.io/ip/{v}"),
               ("AbuseIPDB", f"https://www.abuseipdb.com/check/{v}")]
+    if t in ("domaine", "url"):
+        L += [("Web-Check (tout sur un site : DNS, SSL, en-têtes, technos)", f"https://web-check.xyz/check/{_q(_dom(v), safe='')}")]
     if t == "pseudo":
-        L += [("Google (pseudo exact)", f"https://www.google.com/search?q=%22{q}%22"), ("IDCrawl", f"https://www.idcrawl.com/u/{q}")]
+        L += [("Google (pseudo exact)", f"https://www.google.com/search?q=%22{q}%22"), ("IDCrawl", f"https://www.idcrawl.com/u/{q}"),
+              ("UserSearch (autre base de sites, pour recouper)", "https://usersearch.org/")]
+    if re.fullmatch(r"(?i)CVE-\d{4}-\d{4,7}", v):
+        L += [("Exploit-DB (exploits publics de cette faille)", f"https://www.exploit-db.com/search?cve={v[4:]}"), ("NVD (fiche officielle)", f"https://nvd.nist.gov/vuln/detail/{v.upper()}")]
     L += [("Intelligence X", f"https://intelx.io/?s={q}"), ("DeHashed (payant)", f"https://dehashed.com/search?query={q}"),
           ("OSINT Framework (annuaire)", "https://osintframework.com/"), ("Bellingcat Toolkit", "https://bellingcat.gitbook.io/toolkit")]
     con.print(kv(L, f"🗂 {v} ({t})", G))
+    con.print(kv(EXT_TOOLS, "🧰 Outils à installer à part (ce que chacun apporte en plus)"))
     open_links([u for _, u in L])
     pause()
 
@@ -9409,7 +9596,7 @@ Faire le point sur ton dossier : ce qui est **prouvé**, ce qui **existe sans ê
 SECTIONS = [
     ("RECON IDENTITÉ", [
         ("mod_social", "👥 Lookup réseaux sociaux", "17 plateformes · fiches", "Fiche détaillée d'un pseudo sur GitHub (emails des commits, clés SSH), Reddit (heures d'activité → fuseau), TikTok, Instagram, YouTube, Bluesky, Mastodon, Telegram, Steam, Roblox, Chess.com, Lichess, GitLab, Hacker News, Keybase, Linktree, Docker Hub.\n\nInspiré de Sherlock / Maigret / Osintgram. Une fiche par page (n / p)."),
-        ("mod_wmn", "🌐 Pseudo sur 600+ sites", "WhatsMyName", "Teste un pseudo sur plus de 600 sites avec la base WhatsMyName (celle utilisée par les pros de l'OSINT), mise à jour automatiquement.\n\nRésultats par pages + page HTML cliquable."),
+        ("mod_wmn", "🌐 Pseudo sur 850+ sites", "WhatsMyName + Sherlock", "Teste un pseudo avec deux bases indépendantes (WhatsMyName et Sherlock), mises à jour automatiquement.\n\nChaque compte trouvé passe un test de contrôle avec un pseudo inexistant, et reçoit une confiance : forte si les deux bases sont d'accord ou si la page contient bien le pseudo, moyenne sinon."),
         ("mod_person", "🧍 Recherche de personne", "profils triés par nom + ville", "Prénom + nom + ville → l'outil lit les profils publics des pseudos les plus courants et ne garde que ceux dont le nom affiché et la ville correspondent. Les homonymes et les comptes d'autres personnes sont écartés et listés à part.\n\nDonne aussi les adresses email qui existent (avec le nom de leur profil public) et les recherches prêtes : Google en nom exact, LinkedIn, annuaires, presse."),
         ("mod_sameperson", "🧬 Même personne ?", "recoupement de profils", "Deux comptes appartiennent-ils à la même personne ? Cherche des preuves : lien d'un profil vers l'autre, même email, même photo de profil, même nom, même site. Donne un score et la liste des preuves."),
         ("mod_discord", "💬 Discord lookup", "invitation · ID · widget", "Analyse une invitation Discord (serveur, ID, membres, créateur de l'invitation), la date de n'importe quel ID, un compte (avec token) ou les membres en ligne d'un serveur."),
@@ -9454,6 +9641,7 @@ SECTIONS = [
     ]),
     ("INFRA / WEB", [
         ("mod_iplookup", "🧭 IP lookup", "géo · VPN · Tor · ports", "Tout sur une IP ou un domaine : pays, ville, opérateur, ASN, reverse DNS, détection VPN / proxy / datacenter / Tor, ports ouverts et failles (Shodan InternetDB), autres sites sur la même IP, contact abus, carte.\n\n7 sources interrogées en même temps."),
+        ("mod_ipbulk", "🧮 IP en lot", "journal · liste · carte", "Sort toutes les adresses IP d'un fichier ou d'un texte (journal de connexions, export), recoupe chacune sur 4 bases, résume par pays et par opérateur, signale Tor / VPN / hébergeurs, exporte en CSV et sur une carte."),
         ("mod_domain", "🔭 Domaine / IP", "DNS · SSL · ports · CVE", "Audit d'un domaine ou d'une IP : DNS, sous-domaines, certificat, ports ouverts, failles connues, technologies, en-têtes de sécurité, rapport IA."),
         ("mod_dnscheck", "🧪 DNS recoupé", "3 résolveurs · DNSSEC", "Pose la même question DNS à Google, Cloudflare et Quad9 et compare : une réponse identique sur les trois est sûre, une différence est signalée et expliquée."),
         ("mod_harvest", "🌾 Récolte d'un domaine", "façon theHarvester", "Sous-domaines, emails, serveurs mail et personnes (Hunter) d'un domaine, depuis les certificats SSL, HackerTarget, CertSpotter et les pages du site."),
@@ -9498,7 +9686,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",

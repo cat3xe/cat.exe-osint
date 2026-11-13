@@ -10,6 +10,7 @@ Outil OSINT et GEOINT en ligne de commande (Python 3.14, Rich). Il regroupe des 
 ## Ce que fait le code, et vers où il envoie
 Chaque module interroge des services publics. Liste principale :
 - **E-mail** : vérification MX/SPF/DMARC, fuites (XposedOrNot), comptes (Holehe reproduit en interne, sur une liste de sites).
+- **IP en lot** : extrait les IP d'un journal ou d'un texte, les recoupe et les résume par pays et opérateur.
 - **IP / domaine** : ipwho.is, ip-api.com, ipinfo.io, freeipapi.com, RIPEstat, DNS chiffré (Google, Cloudflare, Quad9), Open-Meteo (relief, fuseaux), crt.sh, HackerTarget, CertSpotter, urlscan.io, web.archive.org.
 - **Banque / véhicule / appareil** : openiban.com (IBAN), NHTSA vPIC (VIN), macvendors.com (MAC).
 - **Entreprises** : BODACC (OpenDataSoft).
@@ -59,7 +60,7 @@ Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un do
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 133 tests automatiques, réseau simulé |
+| `tests/` | 161 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -71,6 +72,16 @@ ou `python osint_tool.py --test`. Les tests tournent aussi automatiquement sur G
 
 Ce que les tests couvrent : calculs géographiques contre des valeurs de référence publiées, contrôles anti-faux-positifs (pseudos, emails), recoupement des sources IP, lecture des réponses de services, reprise après coupure réseau, traçabilité du graphe.
 Ce qu'ils ne couvrent pas : les sites réels. Un site qui change son format peut fausser un résultat sans faire échouer un test.
+
+## Recherche de pseudo : deux moteurs
+La recherche de pseudo interroge deux bases indépendantes, WhatsMyName et Sherlock : environ 870 sites distincts, dont 213 présents dans les deux.
+
+Un compte n'est affiché que s'il passe ces filtres :
+1. **Forme du pseudo** : si le site n'accepte pas cette forme (par exemple un point), il n'est pas interrogé.
+2. **Page anti-robot** : une page d'attente ou de blocage ne compte jamais comme un compte.
+3. **Test de contrôle** : le site doit répondre « absent » à un pseudo qui n'existe pas.
+
+Chaque compte reçoit ensuite une confiance : **forte** si les deux bases sont d'accord ou si la page contient bien le pseudo, **moyenne** sinon.
 
 ## Justesse mesurée du tri des profils
 La recherche de personne trie les profils trouvés : retenu (le nom affiché correspond) ou écarté (homonyme partiel, autre personne). Ce tri est mesuré sur 213 cas étiquetés à la main, choisis pour leurs pièges : noms composés, particules, accents, initiales, pseudos, villes voisines.
@@ -105,4 +116,5 @@ Les programmes Python compilés (PyInstaller) sont parfois signalés à tort par
 MIT, voir `LICENSE`.
 
 ## Crédits
+Bases de sites pour la recherche de pseudo : [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) et [Sherlock](https://github.com/sherlock-project/sherlock) (licence MIT), téléchargées à l'usage et gardées 7 jours en cache.
 Photos des défis : Wikimedia Commons et Unsplash, détail dans `challenges/CREDITS.txt`.
