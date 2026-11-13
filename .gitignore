@@ -6,3 +6,11 @@ build/
 dist/
 *.spec
 CatExe-OSINT/
+sauvegarde_maj/
+projets/
+cours/
+progression.json
+progression_cours.json
+historique_noms.json
+*.log
+*.maj

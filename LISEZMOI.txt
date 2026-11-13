@@ -25,6 +25,15 @@ NOUVEAU : apprendre à coder, décodeurs, fuites de mot de passe, vidéo → ima
 - Decodeur multi-format « magique » · Hash & fichier suspect (vrai type, reputation)
 - Rapport en PDF (lisible sur iPhone)
 
+NOUVEAU : MISE À JOUR AUTOMATIQUE
+---------------------------------
+- Au démarrage, l'outil regarde le dernier commit du dépôt GitHub et compare chaque fichier au tien.
+  S'il y a du nouveau, il propose de télécharger seulement ce qui a changé.
+- Jamais touchés : resultats, config.json, cours, projets, cache, lang, progression, historique, fichiers .log.
+- Rien n'est supprimé, rien d'incomplet n'est installé, et les anciens fichiers vont dans sauvegarde_maj.
+- Réglages → « Chercher une mise à jour » pour la lancer à la main, « Vérifier au démarrage » pour la couper.
+- Pas pour le .exe (retélécharge-le) ni pour un dossier cloné avec Git (git pull).
+
 NOUVEAU : JUSTESSE MESURÉE (objectif 95 % minimum)
 --------------------------------------------------
 - Le tri des profils est mesuré sur 213 cas piégeux étiquetés à la main. Sur le lot de contrôle, jamais vu par le
@@ -70,7 +79,7 @@ NOUVEAU : STRUCTURE ET TESTS
 ----------------------------
 - Le programme est découpé en 4 fichiers, à garder ensemble dans le même dossier :
   osint_tool.py (programme principal), geo_core.py (calculs), pages_html.py (pages web), textes.py (tutos, cours).
-- 118 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
+- 133 tests automatiques dans tests/. Pour les lancer : python osint_tool.py --test
   (réponses simulées, aucun site réel n'est interrogé). Ils tournent aussi sur GitHub à chaque envoi.
 - Réseau plus solide : une requête qui coupe ou un service saturé est retenté une fois automatiquement.
 

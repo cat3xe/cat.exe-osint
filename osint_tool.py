@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -9558,6 +9558,12 @@ def main():
         con.clear()
         lang_choose(first=True)
     boot()
+    if CFG.get("maj", True) and not update_blocked():
+        try:
+            if mod_update(startup=True):
+                return
+        except Exception:
+            pass
     last = "mod_social"
     names = {fn: lab for _, lst in SECTIONS for fn, lab, _, _ in lst}
     while True:
@@ -9659,6 +9665,8 @@ def mod_settings():
         items = [{"label": f"🌍 Langue : {dict(LANGS).get(CFG.get('lang', 'fr'), 'Français')}", "value": "lang", "desc": "13 langues"},
                  {"label": f"🎨 Thème : {CFG.get('theme', DEFAULT_THEME)}", "value": "theme", "desc": f"{len(THEMES)} palettes de couleurs"},
                  {"label": f"🧾 Style : {'sobre (sans emojis)' if CFG.get('sobre', True) else 'avec emojis'}", "value": "sobre", "desc": "affichage du terminal"},
+                 {"label": "🔄 Chercher une mise à jour", "value": "maj_now", "desc": "compare ce dossier au dépôt GitHub"},
+                 {"label": f"🔄 Vérifier au démarrage : {'oui' if CFG.get('maj', True) else 'non'}", "value": "maj", "desc": "mise à jour automatique"},
                  {"label": "📘 Réafficher les tutos", "value": "tuto", "desc": "à la prochaine ouverture de chaque module"},
                  {"label": f"🤖 IA locale (texte) : {CFG.get('ollama_text', 'qwen2.5:3b')}", "value": "ai", "desc": "analyses, cours, rapports"},
                  {"label": f"👀 Vision locale : {CFG.get('ollama_model', 'qwen2.5vl:7b')}", "value": "vis", "desc": "géoloc auto, logos"},
@@ -9684,6 +9692,11 @@ def mod_settings():
                 ollama_setup(True, v)
         elif c == "sobre":
             CFG["sobre"] = not CFG.get("sobre", True)
+            save_cfg()
+        elif c == "maj_now":
+            mod_update()
+        elif c == "maj":
+            CFG["maj"] = not CFG.get("maj", True)
             save_cfg()
         elif c == "theme":
             old = CFG.get("theme", DEFAULT_THEME)
@@ -9824,6 +9837,119 @@ def ch_play(c, p):
             return
         con.print(f"[{R_STYLE}]✗ Mauvaise réponse, réessaie !")
         time.sleep(1.4)
+
+
+# ============================================================ 🔄 MISE À JOUR AUTOMATIQUE DEPUIS GITHUB
+UPDATE_REPO, UPDATE_BRANCH = "cat3xe/cat.exe-osint", "main"
+
+
+def update_check(timeout=6):
+    """Compare ce dossier au dernier commit du dépôt. Renvoie {sha, date, message, plan} ou None si GitHub est injoignable.
+    plan = fichiers à télécharger (voir update_plan). Rien n'est modifié ici."""
+    try:
+        c = get_json(f"https://api.github.com/repos/{UPDATE_REPO}/commits/{UPDATE_BRANCH}", timeout, retries=0, headers={"Accept": "application/vnd.github+json"})
+        sha = c["sha"]
+        t = get_json(f"https://api.github.com/repos/{UPDATE_REPO}/git/trees/{sha}?recursive=1", timeout, retries=0, headers={"Accept": "application/vnd.github+json"})
+        if t.get("truncated"):
+            return None
+    except Exception:
+        return None
+
+    def read_local(p):
+        f = BASE / p
+        try:
+            return f.read_bytes() if f.is_file() else None
+        except OSError:
+            return None
+    return {"sha": sha, "date": ((c.get("commit") or {}).get("committer") or {}).get("date", "")[:10],
+            "message": ((c.get("commit") or {}).get("message") or "").splitlines()[0][:90], "plan": update_plan(t.get("tree"), read_local)}
+
+
+def update_apply(info, progress=None):
+    """Télécharge les fichiers du plan, les contrôle TOUS, puis seulement après les met en place.
+    Si un seul fichier est incomplet ou si le code téléchargé ne se lit pas, rien n'est modifié.
+    Les anciens fichiers sont gardés dans sauvegarde_maj/. Renvoie le dossier de sauvegarde."""
+    got = {}
+    for k, (p, sha, _) in enumerate(info["plan"]):
+        if progress:
+            progress(k, p)
+        r = get(f"https://raw.githubusercontent.com/{UPDATE_REPO}/{info['sha']}/{p}", 30)
+        if r.status_code != 200:
+            raise RuntimeError(f"téléchargement refusé pour {p} (code {r.status_code})")
+        if git_blob_sha(r.content) != sha:
+            raise RuntimeError(f"{p} est arrivé incomplet ou modifié en route")
+        if p.endswith(".py"):
+            try:
+                compile(r.content.decode("utf-8"), p, "exec")
+            except (SyntaxError, UnicodeDecodeError, ValueError) as e:
+                raise RuntimeError(f"{p} : le code téléchargé est illisible ({type(e).__name__})")
+        got[p] = r.content
+    bak = BASE / "sauvegarde_maj" / stamp()
+    for p, data in got.items():
+        dst = BASE / p
+        if dst.is_file():
+            (bak / p).parent.mkdir(parents=True, exist_ok=True)
+            (bak / p).write_bytes(dst.read_bytes())
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".maj")
+        tmp.write_bytes(data)
+        tmp.replace(dst)
+    return bak
+
+
+def update_blocked():
+    """Raison pour laquelle la mise à jour automatique ne s'applique pas ici (None si elle s'applique)."""
+    if getattr(sys, "frozen", False):
+        return "version .exe : télécharge le nouveau .exe, ou utilise LANCER.bat pour avoir les mises à jour automatiques"
+    if (BASE / ".git").exists():
+        return "dossier cloné avec Git : utilise « git pull » (la mise à jour automatique ne touche pas à un dépôt Git)"
+    return None
+
+
+def mod_update(startup=False):
+    """startup=True : vérification discrète au démarrage (silencieuse si tout est à jour ou si GitHub ne répond pas)."""
+    why = update_blocked()
+    if why:
+        if not startup:
+            con.rule(f"[{G}]🔄 MISE À JOUR")
+            log(why, Y)
+            pause()
+        return False
+    if not startup:
+        con.rule(f"[{G}]🔄 MISE À JOUR")
+    with con.status(f"[{P}]Recherche d'une mise à jour…", spinner="dots12"):
+        info = update_check(4 if startup else 10)
+    if info is None:
+        if not startup:
+            log("GitHub ne répond pas (pas de connexion, ou trop de vérifications en une heure). Réessaie plus tard.", Y)
+            pause()
+        return False
+    if not info["plan"]:
+        if not startup:
+            log(f"Tu as la dernière version ({info['date']} · {info['sha'][:7]}).", G)
+            pause()
+        return False
+    con.print(Panel(f"[{G}]Nouvelle version disponible[/] · {escape(info['date'])} · {escape(info['message'])}\n"
+                    f"[{M}]{len(info['plan'])} fichier(s) à mettre à jour : " + escape(", ".join(p for p, _, _ in info["plan"][:8])) + (" …" if len(info["plan"]) > 8 else "")
+                    + "\nTes données ne sont pas touchées : résultats, réglages, cours, projets, progression, langues, journaux."
+                    + "\nLes anciens fichiers sont gardés dans le dossier sauvegarde_maj.", border_style="#00e5ff"))
+    if not ask_yes("Mettre à jour maintenant ?", True):
+        if startup and ask_yes("Ne plus vérifier au démarrage ? (toujours possible depuis Réglages)", False):
+            CFG["maj"] = False
+            save_cfg()
+        return False
+    try:
+        with Progress(TextColumn(f"[{G}]Téléchargement"), BarColumn(complete_style="#00e5ff"), TaskProgressColumn(), TextColumn("{task.description}"), console=con, transient=True) as pr:
+            task = pr.add_task("", total=len(info["plan"]))
+            bak = update_apply(info, lambda k, p: pr.update(task, completed=k, description=f"[{M}]{escape(p)}"))
+    except Exception as e:
+        log(f"Mise à jour annulée, rien n'a été modifié : {sl_err(e)}", R)
+        pause()
+        return False
+    log(f"Mise à jour installée ({len(info['plan'])} fichier(s)). Anciens fichiers : {bak}", G)
+    con.print(f"[{Y}]Ferme l'outil et relance-le pour utiliser la nouvelle version.")
+    pause()
+    return True
 
 
 def self_test():

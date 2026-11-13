@@ -41,6 +41,17 @@ Le graphe d'enquête affiche le niveau de chaque élément par une pastille A / 
 
 Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont chargés automatiquement par `osint_tool.py` : il n'y a rien à lancer, il faut seulement les garder dans le même dossier.
 
+## Mise à jour automatique
+Au démarrage (avec `LANCER.bat` ou `lancer.sh`), l'outil compare son dossier au dernier commit de ce dépôt, fichier par fichier, et propose de télécharger ce qui a changé.
+
+- **Tes données ne sont jamais touchées** : `resultats/`, `config.json`, `cours/`, `projets/`, `cache/`, `lang/`, la progression, l'historique et les fichiers `.log`.
+- **Rien n'est supprimé** : un fichier que le dépôt ne connaît pas reste en place.
+- **Rien d'incomplet n'est installé** : chaque fichier téléchargé est contrôlé par son empreinte, et le code doit se lire correctement. À la moindre anomalie, la mise à jour est annulée et rien ne change.
+- **Retour arrière possible** : les anciens fichiers sont gardés dans `sauvegarde_maj/`.
+- L'outil demande toujours avant d'installer. Pour ne plus vérifier au démarrage : Réglages → « Vérifier au démarrage ».
+
+Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un dossier cloné avec Git (utilise `git pull`).
+
 ## Structure
 | Fichier | Rôle |
 |---|---|
@@ -48,7 +59,7 @@ Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont cha
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 118 tests automatiques, réseau simulé |
+| `tests/` | 133 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 

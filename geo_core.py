@@ -760,3 +760,46 @@ def person_score(profile, first, last, city=""):
     else:
         verdict, level = "aucun", None
     return score, verdict, why, level
+
+
+# ============================================================ MISE À JOUR DEPUIS LE DÉPÔT (comparaison fichier par fichier)
+# Jamais écrasés ni supprimés par une mise à jour : les données de l'utilisateur
+UPDATE_PROTECTED_DIRS = ("resultats", "cache", "cours", "projets", "lang", "sauvegarde_maj", "CatExe-OSINT", "build", "dist", ".git", "__pycache__")
+UPDATE_PROTECTED_FILES = ("config.json", "historique_noms.json", "progression.json", "progression_cours.json", "marques.txt")
+
+
+def git_blob_sha(data):
+    """Empreinte qu'utilise Git pour un fichier : permet de savoir, sans rien télécharger, si un fichier local est identique à celui du dépôt."""
+    import hashlib
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+
+
+def update_safe_path(path):
+    """Chemin du dépôt acceptable pour une mise à jour ? Refuse tout ce qui sortirait du dossier de l'outil."""
+    p = str(path or "")
+    if not p or p.startswith(("/", "\\")) or "\\" in p or ":" in p or "\0" in p:
+        return False
+    parts = p.split("/")
+    return all(x not in ("", ".", "..") for x in parts)
+
+
+def update_protected(path):
+    """Ce chemin fait-il partie des données de l'utilisateur (résultats, réglages, journaux…) ?"""
+    parts = str(path).split("/")
+    return parts[0] in UPDATE_PROTECTED_DIRS or (len(parts) == 1 and parts[0] in UPDATE_PROTECTED_FILES) or parts[-1].lower().endswith(".log")
+
+
+def update_plan(tree, read_local):
+    """tree : liste de fichiers du dépôt [{"path", "sha", "type"}] · read_local(chemin) → octets ou None si absent.
+    Renvoie les fichiers à télécharger [(chemin, sha, "nouveau" | "modifié")]. Les données de l'utilisateur n'y figurent jamais."""
+    plan = []
+    for f in tree or []:
+        p = f.get("path")
+        if f.get("type") != "blob" or not update_safe_path(p) or update_protected(p):
+            continue
+        local = read_local(p)
+        if local is None:
+            plan.append((p, f["sha"], "nouveau"))
+        elif git_blob_sha(local) != f["sha"] and git_blob_sha(local.replace(b"\r\n", b"\n")) != f["sha"]:
+            plan.append((p, f["sha"], "modifié"))
+    return plan
