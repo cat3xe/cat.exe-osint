@@ -48,7 +48,7 @@ Les autres fichiers `.py` (`geo_core.py`, `pages_html.py`, `textes.py`) sont cha
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 96 tests automatiques, réseau simulé |
+| `tests/` | 113 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 

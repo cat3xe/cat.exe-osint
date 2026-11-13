@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, evidence_entry, evidence_verify, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, haversine, height_from_shadow, ip_consensus, los_compute, match_verdict, measure_range, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -6952,13 +6952,39 @@ def gravatar_hit(e):
         return False
 
 
+def gravatar_name(e):
+    """Nom affiché sur le profil Gravatar public d'une adresse (None s'il n'y en a pas)."""
+    try:
+        j = get_json(f"https://en.gravatar.com/{_hl.md5(e.lower().strip().encode()).hexdigest()}.json", 8, retries=0)["entry"][0]
+        return j.get("displayName") or (j.get("name") or {}).get("formatted") or j.get("preferredUsername")
+    except Exception:
+        return None
+
+
+def person_profiles(first, last, city, users, progress=None):
+    """Lit les profils publics des pseudos donnés et les note. Renvoie [(score, verdict, plateforme, pseudo, fiche, raisons, niveau)], meilleurs d'abord."""
+    out = []
+    for k, u in enumerate(users):
+        if progress:
+            progress(k, u)
+        try:
+            found, _ = _quiet_social(u)
+        except Exception:
+            found = []
+        for plat, ico, d in found:
+            sc, verdict, why, lvl = person_score(d, first, last, city)
+            out.append((sc, verdict, plat, u, d, why, lvl))
+    out.sort(key=lambda r: -r[0])
+    return out
+
+
 def mod_person():
     con.rule(f"[{G}]🧍 RECHERCHE DE PERSONNE")
     con.print(f"[{M}]À utiliser pour toi-même ou dans un cadre légal (recherche de contact pro, vérification). Pas de harcèlement.")
     first, last = ask_text("Prénom").strip(), ask_text("Nom").strip()
     if not (first and last):
         return
-    city = ask_text("Ville (optionnel)").strip()
+    city = ask_text("Ville (optionnel, mais rend le tri bien plus précis)").strip()
     dom = ask_text("Domaine d'entreprise pour les emails (optionnel, ex : societe.fr)").strip().lower()
     full = f"{first} {last}"
     doms = [dom] if dom else ["gmail.com", "outlook.fr", "hotmail.fr", "yahoo.fr", "orange.fr", "free.fr", "icloud.com"]
@@ -6966,40 +6992,85 @@ def mod_person():
     with con.status(f"[{P}]Test de {len(perms)} adresses possibles (Gravatar)…", spinner="dots12"):
         with _TPE(16) as ex:
             grav = [e for e, ok in zip(perms, ex.map(gravatar_hit, perms)) if ok]
+            gnames = dict(zip(grav, ex.map(gravatar_name, grav)))
+    grav_rows = []
+    for e in grav:
+        nm = gnames.get(e)
+        lvl = name_match(nm, first, last) if nm else 0
+        grav_rows.append((e, lvl, ("profil au nom de « " + nm + " » : correspond" if lvl == 3 else "profil au nom de « " + nm + " » : autre personne probable" if nm
+                                   else "adresse existante, profil sans nom : propriétaire inconnu")))
     mx = None
     if dom:
         try:
             mx = ", ".join(dns(dom, "MX")[:3]) or "aucun (le domaine ne reçoit pas d'emails)"
         except Exception:
             mx = "non vérifié (DNS injoignable)"
-    q = f'"{full}"' + (f" {city}" if city else "")
+    exact = f'"{first} {last}" OR "{last} {first}"'
+    q = exact + (f' "{city}"' if city else "")
     from urllib.parse import quote_plus as qp
-    links = [("Google", f"https://www.google.com/search?q={qp(q)}"), ("LinkedIn", f"https://www.google.com/search?q={qp(q + ' site:linkedin.com/in')}"),
+    links = [("Google (nom exact" + (" + ville)" if city else ")"), f"https://www.google.com/search?q={qp(q)}"),
+             ("LinkedIn", f"https://www.google.com/search?q={qp(q + ' site:linkedin.com/in')}"),
              ("Facebook", f"https://www.facebook.com/search/people/?q={qp(full)}"), ("Instagram", f"https://www.google.com/search?q={qp(q + ' site:instagram.com')}"),
-             ("X / Twitter", f"https://x.com/search?q={qp(q)}&f=user"), ("TikTok", f"https://www.tiktok.com/search/user?q={qp(full)}"),
+             ("X / Twitter", f"https://x.com/search?q={qp(chr(34) + full + chr(34))}&f=user"), ("TikTok", f"https://www.tiktok.com/search/user?q={qp(full)}"),
              ("Pages Blanches", f"https://www.pagesjaunes.fr/pagesblanches/recherche?quoiqui={qp(full)}&ou={qp(city)}"),
              ("Copains d'avant", f"https://www.google.com/search?q={qp(q + ' site:copainsdavant.linternaute.com')}"),
              ("Dirigeant d'entreprise", f"https://recherche-entreprises.api.gouv.fr/search?q={qp(full)}"),
              ("Documents PDF", f"https://www.google.com/search?q={qp(q + ' filetype:pdf')}"), ("Images", f"https://www.google.com/search?tbm=isch&q={qp(q)}"),
+             ("Presse", f"https://www.google.com/search?tbm=nws&q={qp(q)}"),
              ("Décès (INSEE)", f"https://deces.matchid.io/search?q={qp(full)}")]
-    users = list(dict.fromkeys([_strip_acc(first + last), _strip_acc(first + "." + last), _strip_acc(first + "_" + last), _strip_acc(first[:1] + last), _strip_acc(last + first)]))
-    pages = [kv([("Personne", full + (f" · {city}" if city else "")), ("Adresses qui existent (profil Gravatar)", ("\n".join(grav) + "\n⚠ l'adresse existe, mais elle peut appartenir à un homonyme : à confirmer") if grav else "aucune"),
-                 ("Serveur mail du domaine", mx), ("Pseudos probables", ", ".join(users)), ("Emails possibles", f"{len(perms)} combinaisons (page suivante)")], f"🧍 {full}", G),
+    users = person_usernames(first, last)
+    grav_txt = "\n".join(f"{e}  →  {t}" for e, lvl, t in sorted(grav_rows, key=lambda r: -r[1])) or "aucune"
+    pages = [kv([("Personne", full + (f" · {city}" if city else "")), ("Adresses qui existent (profil Gravatar)", grav_txt),
+                 ("Serveur mail du domaine", mx), ("Pseudos à tester", ", ".join(users)), ("Emails possibles", f"{len(perms)} combinaisons (page suivante)"),
+                 ("Étape suivante", "« Chercher les profils qui correspondent » lit les profils publics de ces pseudos et ne garde que ceux dont le nom"
+                                    + (" et la ville" if city else "") + " correspondent.")], f"🧍 {full}", G),
              kv([(d, "\n".join(e for e in perms if e.endswith("@" + d))) for d in doms], "📧 Emails possibles"),
              kv(links, "🔎 Recherches prêtes")]
     view_pages(f"PERSONNE · {full}", pages)
-    add_report("Recherche de personne", full, f"Gravatar : {', '.join(grav) or 'aucun'} · pseudos : {', '.join(users)}")
+    root = gnode("personne", full, {"ville": city} if city else None, "enquete:" + gname())
+    for e, lvl, t in grav_rows:
+        if lvl == 3:
+            gnode("email", e, None, root, "profil Gravatar à ce nom", fiab="B", src="adresse construite à partir du nom ; son profil Gravatar public porte le même nom")
+    gsave()
+    add_report("Recherche de personne", full, f"Adresses existantes : {'; '.join(f'{e} ({t})' for e, lvl, t in grav_rows) or 'aucune'} · pseudos à tester : {', '.join(users)}")
     while True:
-        c = select("Ouvrir une recherche", [{"label": n, "value": l} for n, l in links] + [{"label": "👥 Tester les pseudos probables sur les réseaux", "value": "soc"}], echo=False)
+        c = select("Et maintenant ?", [{"label": "🎯 Chercher les profils qui correspondent" + (" (nom + ville)" if city else " (nom)"), "value": "match",
+                                        "desc": f"{len(users)} pseudos × {len(SOCIAL)} plateformes"}]
+                   + [{"label": n, "value": l} for n, l in links], echo=False)
         if c is None:
             break
-        if c == "soc":
-            u = select("Pseudo à tester", users)
-            if u is not None:
-                found, _ = social_scan(users[u])
-                view_pages(f"LOOKUP · {users[u]}", [social_page(*x) for x in found] or [kv([("Résultat", "aucun profil trouvé")])])
-        else:
+        if c != "match":
             webbrowser.open(c)
+            continue
+        with Progress(TextColumn(f"[{G}]Lecture des profils"), BarColumn(complete_style="#00e5ff"), TaskProgressColumn(), TextColumn("{task.description}"), console=con, transient=True) as pr:
+            task = pr.add_task("", total=len(users))
+            res = person_profiles(first, last, city, users, lambda k, u: pr.update(task, completed=k, description=f"[{M}]{escape(u)}"))
+        keep = [r for r in res if r[1] in ("fort", "moyen")]
+        weak = [r for r in res if r[1] == "faible"]
+        other = [r for r in res if r[1] == "aucun"]
+        if not res:
+            log("Aucun profil public trouvé sous ces pseudos. La personne utilise peut-être un autre pseudo : essaie les recherches Google ci-dessus.", Y)
+            continue
+        t = Table(title=f"Profils retenus pour {full}" + (f" · {city}" if city else ""), box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
+        for col_ in ("Plateforme", "Pseudo", "Score", "Verdict", "Pourquoi", "Lien"):
+            t.add_column(col_, overflow="fold")
+        for sc, verdict, plat, u, d, why, lvl in keep:
+            t.add_row(plat, u, f"[{FIAB_COL[lvl]}]{sc}/100", f"[{FIAB_COL[lvl]}]{PERSON_VERDICT[verdict]}", escape("\n".join("• " + w for w in why)), escape(str(d.get("_url") or "")))
+            gnode("compte", f"{plat} · {u}", {k: v for k, v in d.items() if not k.startswith("_")} | {"url": d.get("_url"), "correspondance": f"{sc}/100 · {PERSON_VERDICT[verdict]}"},
+                  root, PERSON_VERDICT[verdict], plat, fiab=lvl, src="profil public lu sur " + plat + " ; " + " ; ".join(why))
+        if not keep:
+            t.add_row("—", "—", "—", "aucun profil ne correspond au nom" + (" et à la ville" if city else ""), "", "")
+        con.print(t)
+        if weak:
+            con.print(f"[{M}]{len(weak)} profil(s) au nom partiel, non retenu(s) : " + escape(", ".join(f"{r[2]} · {r[3]}" for r in weak[:10])))
+        if other:
+            con.print(f"[{M}]{len(other)} profil(s) écarté(s) (même pseudo, autre nom ou aucun nom : probablement quelqu'un d'autre) : "
+                      + escape(", ".join(f"{r[2]} · {r[3]}" for r in other[:12])) + (" …" if len(other) > 12 else ""))
+        con.print(f"[{M}]Un nom et une ville identiques ne prouvent pas que le compte appartient à la personne. Pour le confirmer, lance « Même personne ? » "
+                  "entre un profil retenu et un compte déjà établi.")
+        gsave()
+        add_report("Recherche de personne", full, "\n".join(f"{r[2]} · {r[3]} : {r[0]}/100 · {PERSON_VERDICT[r[1]]} · {' ; '.join(r[5])}" for r in keep) or "aucun profil retenu")
+        pause()
 
 
 # ------------------------------------------------------------ BOÎTE À OUTILS HORS LIGNE
@@ -7399,7 +7470,7 @@ TRANSFORMS = {
     "ip": [("ip", "IP lookup (géo, opérateur, ports)"), ("revip", "Sites sur la même IP")],
     "domaine": [("dns", "DNS : IP, MX, NS"), ("subs", "Sous-domaines (certificats)"), ("breach_dom", "Fuites du domaine"), ("iocs", "Indices du site")],
     "url": [("url_dom", "Domaine du lien"), ("iocs", "Indices de la page")],
-    "personne": [("perms", "Emails possibles (adresse existante, propriétaire à confirmer)")],
+    "personne": [("perms", "Emails possibles (adresse existante, propriétaire à confirmer)"), ("profils", "Profils au même nom (triés par correspondance)")],
     "lieu": [("rev", "Adresse du lieu")],
 }
 
@@ -7549,6 +7620,16 @@ def graph_transform(e, nid, t):
                     if ok:
                         gnode("email", em, None, nid, "adresse devinée", fiab="C",
                               src="adresse construite à partir du nom ; elle existe (profil Gravatar) mais peut appartenir à un homonyme")
+    elif t == "profils":
+        parts = lab.split()
+        if len(parts) >= 2:
+            first, last, city = parts[0], " ".join(parts[1:]), str(data.get("ville") or "")
+            res = person_profiles(first, last, city, person_usernames(first, last, 5))
+            for sc, verdict, plat, u, d, why, lvl in res:
+                if verdict in ("fort", "moyen"):
+                    gnode("compte", f"{plat} · {u}", {k: v for k, v in d.items() if not k.startswith("_")} | {"url": d.get("_url"), "correspondance": f"{sc}/100 · {PERSON_VERDICT[verdict]}"},
+                          nid, PERSON_VERDICT[verdict], plat, fiab=lvl, src="profil public lu sur " + plat + " ; " + " ; ".join(why))
+            msg = f"{sum(1 for r in res if r[1] in ('fort', 'moyen'))} profil(s) retenu(s), {sum(1 for r in res if r[1] in ('faible', 'aucun'))} écarté(s)"
     elif t == "rev":
         c = parse_coords(data.get("coordonnées") or lab, quiet=True)
         if c:
@@ -9329,7 +9410,7 @@ SECTIONS = [
     ("RECON IDENTITÉ", [
         ("mod_social", "👥 Lookup réseaux sociaux", "17 plateformes · fiches", "Fiche détaillée d'un pseudo sur GitHub (emails des commits, clés SSH), Reddit (heures d'activité → fuseau), TikTok, Instagram, YouTube, Bluesky, Mastodon, Telegram, Steam, Roblox, Chess.com, Lichess, GitLab, Hacker News, Keybase, Linktree, Docker Hub.\n\nInspiré de Sherlock / Maigret / Osintgram. Une fiche par page (n / p)."),
         ("mod_wmn", "🌐 Pseudo sur 600+ sites", "WhatsMyName", "Teste un pseudo sur plus de 600 sites avec la base WhatsMyName (celle utilisée par les pros de l'OSINT), mise à jour automatiquement.\n\nRésultats par pages + page HTML cliquable."),
-        ("mod_person", "🧍 Recherche de personne", "emails · pseudos · annuaires", "Prénom + nom → adresses email probables (testées via Gravatar), pseudos probables, et toutes les recherches prêtes : LinkedIn, Facebook, Pages Blanches, Copains d'avant, dirigeants d'entreprise, PDF…"),
+        ("mod_person", "🧍 Recherche de personne", "profils triés par nom + ville", "Prénom + nom + ville → l'outil lit les profils publics des pseudos les plus courants et ne garde que ceux dont le nom affiché et la ville correspondent. Les homonymes et les comptes d'autres personnes sont écartés et listés à part.\n\nDonne aussi les adresses email qui existent (avec le nom de leur profil public) et les recherches prêtes : Google en nom exact, LinkedIn, annuaires, presse."),
         ("mod_sameperson", "🧬 Même personne ?", "recoupement de profils", "Deux comptes appartiennent-ils à la même personne ? Cherche des preuves : lien d'un profil vers l'autre, même email, même photo de profil, même nom, même site. Donne un score et la liste des preuves."),
         ("mod_discord", "💬 Discord lookup", "invitation · ID · widget", "Analyse une invitation Discord (serveur, ID, membres, créateur de l'invitation), la date de n'importe quel ID, un compte (avec token) ou les membres en ligne d'un serveur."),
         ("mod_user", "👤 Pseudos", "95 sites", "Teste un pseudo sur 95 sites (réseaux, jeux, dev, créa…) en parallèle, avec ses variantes (_ . -).\n\nTu donnes : un pseudo.\nTu obtiens : la liste des comptes trouvés, un niveau d'exposition et une checklist IA."),

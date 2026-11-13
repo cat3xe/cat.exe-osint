@@ -613,3 +613,90 @@ def evidence_verify(journal, files=None):
             elif hashlib.sha256(data).hexdigest() != e.get("sha256"):
                 pb.append(f"preuve n°{i} : le fichier {e['fichier']} a été modifié depuis la capture")
     return not pb, pb
+
+
+# ============================================================ RECHERCHE DE PERSONNE : trier les vrais profils des homonymes
+def name_tokens(s):
+    """Mots d'un nom, sans accents ni majuscules ni ponctuation (« Jean-Noël DUPONT » → ["jean", "noel", "dupont"])."""
+    return [t for t in re.split(r"[^a-z0-9]+", _strip_acc(str(s or ""))) if t]
+
+
+def name_match(shown, first, last):
+    """Compare un nom affiché sur un profil au nom cherché. Renvoie 3 (prénom et nom entiers présents),
+    2 (nom de famille + initiale du prénom), 1 (un seul des deux) ou 0 (rien)."""
+    tk = name_tokens(shown)
+    f, l = name_tokens(first), name_tokens(last)
+    if not tk or not f or not l:
+        return 0
+    has_last = all(x in tk for x in l)
+    has_first = all(x in tk for x in f)
+    if has_last and has_first:
+        return 3
+    glued = "".join(tk)
+    if "".join(f) + "".join(l) == glued or "".join(l) + "".join(f) == glued:
+        return 3
+    if has_last and any(t != l[0] and t[:1] == f[0][:1] and len(t) <= 2 for t in tk):
+        return 2
+    return 1 if has_last or has_first else 0
+
+
+def city_match(text, city):
+    """La ville cherchée apparaît-elle comme mot entier dans ce texte (lieu, bio) ?"""
+    c, t = name_tokens(city), name_tokens(text)
+    if not c or not t:
+        return False
+    return any(t[i:i + len(c)] == c for i in range(len(t) - len(c) + 1))
+
+
+def person_usernames(first, last, limit=8):
+    """Pseudos les plus courants pour ce nom, du plus probable au moins probable."""
+    f, l = "".join(name_tokens(first)), "".join(name_tokens(last))
+    if not f or not l:
+        return []
+    cand = [f + l, f"{f}.{l}", f"{f}_{l}", l + f, f[:1] + l, f"{l}.{f}", f"{f}-{l}", l + f[:1], f"{f}{l[:1]}", f"{l}_{f}"]
+    return list(dict.fromkeys(c for c in cand if 3 <= len(c) <= 30))[:limit]
+
+
+PERSON_VERDICT = {"fort": "nom et ville correspondent", "moyen": "nom identique, ville non confirmée : homonyme possible",
+                  "faible": "nom partiel seulement : à écarter sauf autre indice", "aucun": "même pseudo, autre nom : probablement quelqu'un d'autre"}
+
+
+def person_score(profile, first, last, city=""):
+    """Note un profil public par rapport à la personne cherchée. Renvoie (score 0-100, verdict, [raisons], niveau B/C/None).
+    Jamais « A » : un nom et une ville identiques ne prouvent pas que le compte appartient à cette personne."""
+    shown = profile.get("Nom") or ""
+    lvl = name_match(shown, first, last)
+    score, why = {3: 60, 2: 30, 1: 10, 0: 0}[lvl], []
+    if lvl == 3:
+        why.append(f"nom affiché identique : {shown}")
+    elif lvl == 2:
+        why.append(f"nom de famille + initiale : {shown}")
+    elif lvl == 1:
+        why.append(f"un seul des deux noms : {shown}")
+    elif shown:
+        why.append(f"nom affiché différent : {shown}")
+    else:
+        why.append("aucun nom affiché sur le profil")
+    in_place = bool(city) and city_match(profile.get("Lieu"), city)
+    in_bio = bool(city) and not in_place and city_match(" ".join(str(profile.get(k) or "") for k in ("Bio", "À propos", "Entreprise", "Site", "Lien")), city)
+    if in_place:
+        score += 30
+        why.append(f"lieu indiqué : {profile.get('Lieu')}")
+    elif in_bio:
+        score += 18
+        why.append(f"« {city} » cité dans la présentation")
+    elif city and profile.get("Lieu"):
+        score -= 15
+        why.append(f"autre lieu indiqué : {profile.get('Lieu')}")
+    score = max(0, min(score, 100))
+    if lvl == 3 and (in_place or in_bio):
+        verdict, level = "fort", "B"
+    elif lvl == 3:
+        verdict, level = "moyen", "C"
+    elif lvl == 2 and (in_place or in_bio):
+        verdict, level = "moyen", "C"
+    elif lvl >= 1:
+        verdict, level = "faible", None
+    else:
+        verdict, level = "aucun", None
+    return score, verdict, why, level
