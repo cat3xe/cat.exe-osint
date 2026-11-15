@@ -60,7 +60,7 @@ Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un do
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 168 tests automatiques, réseau simulé |
+| `tests/` | 178 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -82,6 +82,17 @@ Un compte n'est affiché que s'il passe ces filtres :
 3. **Test de contrôle** : le site doit répondre « absent » à un pseudo qui n'existe pas et qui a la même forme. Pour un pseudo à point, tiret ou souligné (`cat.3xe`), un second contrôle garde le début et change la fin (`cat.k7q`) : il écarte les sites qui ignorent ce qui suit le signe et affichent la page d'un autre compte.
 
 Chaque compte reçoit ensuite une confiance : **forte** si les deux bases sont d'accord ou si le contenu de la page contient bien le pseudo (l'adresse ne compte pas), **moyenne** sinon.
+
+## Outils externes
+Le module **Outils externes** lance trois outils reconnus sans quitter Cat.exe. Il les installe à la demande (`pip`), affiche leur sortie, l'enregistre dans `resultats/` et envoie ce qu'ils trouvent dans le graphe.
+
+| Outil | Ce qu'il fait | Ce qu'il lui faut |
+|---|---|---|
+| [h8mail](https://github.com/khast3x/h8mail) | email → fuites de données | rien ; tes clés d'API dans `h8mail_config.ini` pour aller plus loin |
+| [GitFive](https://github.com/mxrch/GitFive) | compte GitHub → emails, noms, pseudos liés | une connexion à ton compte GitHub |
+| [Toutatis](https://github.com/megadose/toutatis) | compte Instagram → email et téléphone masqués | l'identifiant de session de ton compte Instagram |
+
+L'identifiant de session Instagram n'est ni enregistré ni écrit dans les résultats. Ces outils utilisent tes comptes : n'enquête que sur tes propres comptes ou dans un cadre autorisé. Ils ne sont pas disponibles dans le `.exe`.
 
 ## Justesse mesurée du tri des profils
 La recherche de personne trie les profils trouvés : retenu (le nom affiché correspond) ou écarté (homonyme partiel, autre personne). Ce tri est mesuré sur 213 cas étiquetés à la main, choisis pour leurs pièges : noms composés, particules, accents, initiales, pseudos, villes voisines.

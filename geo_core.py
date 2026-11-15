@@ -765,7 +765,7 @@ def person_score(profile, first, last, city=""):
 # ============================================================ MISE À JOUR DEPUIS LE DÉPÔT (comparaison fichier par fichier)
 # Jamais écrasés ni supprimés par une mise à jour : les données de l'utilisateur
 UPDATE_PROTECTED_DIRS = ("resultats", "cache", "cours", "projets", "lang", "sauvegarde_maj", "CatExe-OSINT", "build", "dist", ".git", "__pycache__")
-UPDATE_PROTECTED_FILES = ("config.json", "historique_noms.json", "progression.json", "progression_cours.json", "marques.txt")
+UPDATE_PROTECTED_FILES = ("config.json", "historique_noms.json", "progression.json", "progression_cours.json", "marques.txt", "h8mail_config.ini")
 
 
 def git_blob_sha(data):
@@ -967,3 +967,39 @@ def ip_summary(rows):
             flags[f] += 1
     return {"total": len(rows), "pays": by_cc.most_common(), "operateurs": by_asn.most_common(), "signalements": flags.most_common(),
             "surs": sum(1 for r in rows if r.get("level") == "A")}
+
+
+# ============================================================ OUTILS EXTERNES (h8mail, GitFive, Toutatis) : préparation des commandes
+# pip = paquet à installer · mod = module à importer pour savoir s'il est installé · run = façon de le lancer
+EXT = {
+    "h8mail": {"pip": "h8mail", "mod": "h8mail", "run": ("-m", "h8mail"),
+               "titre": "h8mail · email → fuites de données", "besoin": "une adresse email ; des clés d'API pour aller plus loin (facultatif)"},
+    "gitfive": {"pip": "gitfive", "mod": "gitfive", "run": ("-c", "import sys; sys.argv[0] = 'gitfive'; from gitfive.gitfive import main; main()"),
+                "titre": "GitFive · compte GitHub → emails, noms, pseudos liés", "besoin": "une connexion à un compte GitHub (une seule fois)"},
+    "toutatis": {"pip": "toutatis", "mod": "toutatis", "run": ("-c", "import sys; sys.argv[0] = 'toutatis'; from toutatis.core import main; main()"),
+                 "titre": "Toutatis · compte Instagram → email et téléphone masqués", "besoin": "l'identifiant de session de TON compte Instagram"},
+}
+
+
+def ext_argv(python, tool, args):
+    """Ligne de commande qui lance un outil externe avec le même Python que l'outil principal."""
+    if tool not in EXT:
+        raise ValueError(f"outil inconnu : {tool}")
+    return [str(python), *EXT[tool]["run"], *[str(a) for a in args]]
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\r")
+
+
+def strip_ansi(s):
+    """Retire les codes de couleur d'une sortie de terminal."""
+    return _ANSI.sub("", str(s or ""))
+
+
+def redact(text, secrets):
+    """Remplace chaque secret (identifiant de session, clé) par ••• dans un texte avant de l'enregistrer."""
+    out = str(text or "")
+    for sec in secrets or ():
+        if sec and len(str(sec)) >= 4:
+            out = out.replace(str(sec), "•••")
+    return out

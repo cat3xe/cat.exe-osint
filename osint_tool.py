@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, sherlock_valid, sherlock_verdict, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, EXT, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, ext_argv, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, redact, resect, sherlock_valid, sherlock_verdict, size_from_dist, strip_ansi, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -7864,7 +7864,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"h8mail": "email", "GitFive": "compte", "Toutatis": "compte", "mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -8726,14 +8726,151 @@ def mod_autoscan():
 
 
 # ---------- 🗂 Sources pro (Censys, Hunter, IntelX, DeHashed, Epieos, OSINT Framework…)
+# ------------------------------------------------------------ 🧰 OUTILS EXTERNES : h8mail, GitFive, Toutatis
+def ext_installed(tool):
+    try:
+        import importlib
+        import importlib.util
+        importlib.invalidate_caches()
+        return importlib.util.find_spec(EXT[tool]["mod"]) is not None
+    except Exception:
+        return False
+
+
+def ext_install(tool):
+    """Propose d'installer l'outil avec pip. Renvoie True s'il est disponible à la fin."""
+    if ext_installed(tool):
+        return True
+    if getattr(sys, "frozen", False):
+        log("Ces outils ne peuvent pas s'installer dans le .exe : lance l'outil avec LANCER.bat pour les utiliser.", Y)
+        return False
+    if not ask_yes(f"{tool} n'est pas installé. L'installer maintenant ? (≈ 30 s, une seule fois)", True):
+        return False
+    import subprocess as sp
+    with con.status(f"[{P}]Installation de {tool}…", spinner="dots12"):
+        r = sp.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check", EXT[tool]["pip"]], capture_output=True, text=True)
+    if r.returncode != 0 or not ext_installed(tool):
+        log(f"Installation impossible. Dans un terminal : py -3.14 -m pip install {EXT[tool]['pip']}", Y)
+        if r.stderr:
+            con.print(f"[{M}]{escape(r.stderr.strip().splitlines()[-1][:200])}")
+        return False
+    log(f"{tool} installé.", G)
+    return True
+
+
+def ext_run(tool, args, interactive=False, secrets=(), python=None):
+    """Lance un outil externe. interactive=True : l'outil garde le clavier (connexion, questions).
+    Sinon sa sortie est affichée au fur et à mesure et renvoyée. Renvoie (code de retour, sortie sans couleurs ni secrets)."""
+    import subprocess as sp
+    argv = ext_argv(python or sys.executable, tool, args)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    if interactive:
+        try:
+            return sp.run(argv, env=env).returncode, ""
+        except KeyboardInterrupt:
+            return 130, ""
+    out = []
+    p = sp.Popen(argv, stdout=sp.PIPE, stderr=sp.STDOUT, stdin=sp.DEVNULL, env=env, text=True, encoding="utf-8", errors="replace")
+    try:
+        for line in p.stdout:
+            clean = redact(strip_ansi(line.rstrip("\n")), secrets)
+            out.append(clean)
+            con.print(escape(clean), highlight=False)
+        p.wait()
+    except KeyboardInterrupt:
+        p.terminate()
+        out.append("(arrêté par l'utilisateur)")
+    return p.returncode if p.returncode is not None else 130, "\n".join(out)
+
+
+def ext_save(tool, target, output):
+    """Enregistre la sortie d'un outil externe et l'envoie au rapport et au graphe."""
+    f = OUT / f"externe_{tool}_{re.sub(r'[^A-Za-z0-9._@-]', '_', target)[:40]}_{stamp()}.txt"
+    f.write_text(output, encoding="utf-8")
+    log(f"Sortie enregistrée : {f}", G)
+    add_report(tool, target, output[:6000])
+    return f
+
+
+def mod_exttools():
+    con.rule(f"[{G}]🧰 OUTILS EXTERNES · h8mail, GitFive, Toutatis")
+    con.print(f"[{M}]Trois outils reconnus, lancés depuis ici : installation à la demande, sortie enregistrée, résultats envoyés au graphe. "
+              "Ils se connectent avec TES comptes ou TES clés : à n'utiliser que sur tes propres comptes ou dans un cadre autorisé.")
+    while True:
+        c = select("Quel outil ?", [{"label": "📧 " + EXT["h8mail"]["titre"], "value": "h8mail", "desc": EXT["h8mail"]["besoin"]},
+                                    {"label": "🐙 " + EXT["gitfive"]["titre"], "value": "gitfive", "desc": EXT["gitfive"]["besoin"]},
+                                    {"label": "📸 " + EXT["toutatis"]["titre"], "value": "toutatis", "desc": EXT["toutatis"]["besoin"]},
+                                    {"label": "← Retour", "value": None}])
+        if c is None:
+            return
+        if not ext_install(c):
+            pause()
+            continue
+        if c == "h8mail":
+            em = ask_text("Email à vérifier").strip().lower()
+            if not re.fullmatch(r"[\w.+-]+@[\w-]+\.[\w.-]+", em):
+                log("Email invalide.", Y)
+                continue
+            cfgf = BASE / "h8mail_config.ini"
+            args = ["-t", em]
+            if cfgf.is_file():
+                args += ["-c", str(cfgf)]
+                log("Clés d'API lues dans h8mail_config.ini.", G)
+            else:
+                con.print(f"[{M}]Sans clés d'API, h8mail n'interroge que ses sources gratuites, souvent vides. Pour ajouter tes clés (HIBP, Snusbase, Leak-Lookup…), "
+                          f"crée le fichier {cfgf} sur le modèle donné dans la documentation de h8mail. Ce fichier n'est jamais touché par les mises à jour.")
+            code, out = ext_run("h8mail", args)
+            ext_save("h8mail", em, out)
+            if code != 0:
+                log(f"h8mail s'est arrêté avec une erreur (code {code}).", Y)
+        elif c == "gitfive":
+            a = select("GitFive", [{"label": "🔑 Se connecter à GitHub", "value": "login", "desc": "à faire une fois, avec ton compte"},
+                                   {"label": "👤 Enquêter sur un compte", "value": "user", "desc": "emails, noms, pseudos, clés SSH"},
+                                   {"label": "⚡ Emails d'un compte (rapide)", "value": "light"},
+                                   {"label": "📧 Retrouver le compte d'un email", "value": "email"}, {"label": "← Retour", "value": None}])
+            if a is None:
+                continue
+            if a == "login":
+                con.print(f"[{M}]GitFive va te demander tes identifiants GitHub. Ils sont gardés par GitFive sur ton PC, pas par cet outil.")
+                ext_run("gitfive", ["login"], interactive=True)
+            else:
+                v = ask_text("Adresse email" if a == "email" else "Pseudo GitHub").strip().lstrip("@")
+                if not v:
+                    continue
+                # GitFive garde le clavier (il redemande les identifiants si la session a expiré) ; ses résultats sont repris de son export JSON
+                jf = OUT / f"gitfive_{re.sub(r'[^A-Za-z0-9._@-]', '_', v)[:40]}_{stamp()}.json"
+                code, _ = ext_run("gitfive", [a, v] + (["--json", str(jf)] if a != "light" else []), interactive=True)
+                if jf.is_file():
+                    try:
+                        out = json.dumps(json.loads(jf.read_text(encoding="utf-8")), ensure_ascii=False, indent=1)
+                    except Exception:
+                        out = jf.read_text(encoding="utf-8", errors="replace")
+                    ext_save("GitFive", v, out)
+                elif a == "light":
+                    con.print(f"[{M}]Mode rapide : les emails sont affichés ci-dessus (pas d'export). Utilise « Enquêter sur un compte » pour les garder dans le dossier.")
+                if code != 0:
+                    log("GitFive s'est arrêté avec une erreur. Si tu n'es pas connecté, choisis d'abord « Se connecter à GitHub ».", Y)
+        elif c == "toutatis":
+            con.print(f"[{M}]Toutatis lit ce qu'Instagram montre à un compte connecté. Il lui faut l'identifiant de session (cookie « sessionid ») de TON compte : "
+                      "navigateur → instagram.com → F12 → Application → Cookies. Il n'est ni enregistré ni écrit dans les résultats. "
+                      "Une utilisation répétée peut faire bloquer ton compte par Instagram.")
+            u = ask_text("Pseudo Instagram").strip().lstrip("@")
+            sid = ask_text("Identifiant de session (sessionid)", password=True).strip()
+            if not (u and sid):
+                continue
+            code, out = ext_run("toutatis", ["-u", u, "-s", sid], secrets=[sid])
+            ext_save("Toutatis", u, out)
+            if code != 0:
+                log("Toutatis s'est arrêté avec une erreur (session expirée, ou compte bloqué temporairement).", Y)
+        pause()
+
+
 EXT_TOOLS = [
-    ("Sherlock", "déjà intégré : sa base de sites sert de second moteur dans « Pseudo sur 1000+ sites »"),
-    ("IPinfo CLI", "déjà couvert : « IP lookup » interroge ipinfo.io, « IP en lot » traite une liste et résume par pays / opérateur"),
-    ("h8mail · github.com/khast3x/h8mail", "email → fuites, avec tes propres clés d'API (HIBP, Snusbase, Leak-Lookup…). En plus de « Email », qui utilise les sources gratuites"),
-    ("GitFive · github.com/mxrch/GitFive", "compte GitHub → emails, noms et pseudos liés. Demande de se connecter avec un compte GitHub. En plus de « Lookup réseaux sociaux »"),
-    ("Toutatis · github.com/megadose/toutatis", "compte Instagram → email et téléphone partiellement masqués. Demande un identifiant de session Instagram"),
-    ("DaProfiler · github.com/TheRealDalunacrobate/DaProfiler", "nom + prénom → profils publics en France. En plus de « Recherche de personne »"),
-    ("Rappel", "Ces outils demandent une connexion ou des clés : à n'utiliser que sur tes propres comptes ou dans un cadre autorisé."),
+    ("Sherlock", "intégré : sa base de sites sert de second moteur dans « Pseudo sur 850+ sites »"),
+    ("IPinfo CLI", "couvert : « IP lookup » interroge ipinfo.io, « IP en lot » traite une liste et résume par pays / opérateur"),
+    ("h8mail, GitFive, Toutatis", "intégrés : module « Outils externes » (installation à la demande, sortie enregistrée, résultats dans le graphe)"),
+    ("DaProfiler · github.com/TheRealDalunacrobate/DaProfiler", "non intégré : il n'est plus maintenu et va chercher adresses postales et téléphones dans les annuaires. "
+                                                                "« Recherche de personne » couvre la partie profils publics"),
 ]
 
 
@@ -9622,6 +9759,20 @@ Garder une **preuve** d'une page ou d'un fichier avant qu'il disparaisse : copie
 ### 🔎 Comment lire
 - Le journal prouve que **rien n'a changé depuis** la capture.
 - Il ne prouve pas la date à lui seul : c'est le rôle de l'archive publique.""",
+"mod_exttools": """### 🎯 À quoi ça sert
+Lancer **h8mail**, **GitFive** et **Toutatis** depuis Cat.exe, sans ligne de commande.
+### 🧰 Ce qu'il te faut
+- **h8mail** : une adresse email. Avec tes clés d'API dans `h8mail_config.ini`, il interroge bien plus de sources.
+- **GitFive** : un compte GitHub pour te connecter (une seule fois).
+- **Toutatis** : l'identifiant de session de **ton** compte Instagram.
+### ▶ Étapes
+1. Choisis l'outil : il s'installe tout seul la première fois.
+2. Donne la cible. La sortie s'affiche en direct.
+3. Elle est enregistrée dans `resultats/`, et les emails ou liens trouvés vont dans le graphe.
+### 🔎 Comment lire
+- Ces outils utilisent **tes** comptes : n'enquête que sur tes propres comptes ou dans un cadre autorisé.
+- L'identifiant de session Instagram n'est ni enregistré ni écrit dans les résultats.
+- Trop de requêtes peuvent faire bloquer ton compte par GitHub ou Instagram.""",
 "mod_fiab": """### 🎯 À quoi ça sert
 Faire le point sur ton dossier : ce qui est **prouvé**, ce qui **existe sans être relié**, ce qui n'est qu'une **piste**.
 ### 🔎 Comment lire
@@ -9640,6 +9791,7 @@ SECTIONS = [
         ("mod_user", "👤 Pseudos", "95 sites", "Teste un pseudo sur 95 sites (réseaux, jeux, dev, créa…) en parallèle, avec ses variantes (_ . -).\n\nTu donnes : un pseudo.\nTu obtiens : la liste des comptes trouvés, un niveau d'exposition et une checklist IA."),
         ("mod_prevname", "⏳ Prevname", "anciens pseudos", "Retrouve les anciens pseudos d'un compte : Steam, Roblox, Minecraft, X, GitHub, Bluesky (historique complet), Discord (ID), 36 sites qui redirigent les anciens noms et 57 plateformes dans les archives web."),
         ("mod_email", "📧 Email", "fuites · Gravatar", "Vérifie une adresse : fuites de données connues, avatar Gravatar, fournisseur, adresse jetable ou non, sécurité du domaine (SPF/DMARC)."),
+        ("mod_exttools", "🧰 Outils externes", "h8mail · GitFive · Toutatis", "Lance trois outils reconnus sans quitter Cat.exe : h8mail (email → fuites), GitFive (compte GitHub → emails, noms, pseudos liés) et Toutatis (compte Instagram → email et téléphone masqués).\n\nL'outil les installe à la demande, enregistre leur sortie et envoie ce qu'ils trouvent dans le graphe. Ils utilisent tes propres comptes ou clés."),
         ("mod_holehe", "📬 Email → comptes", "Holehe · 120 sites", "Teste sur ~120 sites (Instagram, Spotify, Amazon, Discord…) si un compte existe avec un email, comme l'outil Holehe, sans prévenir la personne. + lien Epieos."),
         ("mod_breaches", "💧 Fuites d'un site", "Have I Been Pwned", "Un site ou un service a-t-il déjà été piraté ? Date de la fuite, nombre de comptes, données exposées (emails, mots de passe, adresses…), d'après la base publique Have I Been Pwned."),
         ("mod_pwned", "🔑 Fuite de mot de passe", "sans l'envoyer", "Vérifie si un mot de passe est dans les 900 millions de mots de passe fuités, sans jamais l'envoyer (seuls 5 caractères de son empreinte partent).\n\nDonne aussi sa force et le temps pour le casser."),
@@ -9723,7 +9875,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_exttools": "h8mail gitfive toutatis externe instagram github fuites email outils", "mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",
