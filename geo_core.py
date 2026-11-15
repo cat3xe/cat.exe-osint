@@ -857,12 +857,51 @@ def sherlock_verdict(site, status, text, username=""):
 
 
 def echoes(username, text, url=""):
-    """Le pseudo apparaît-il vraiment dans la page ou dans son adresse finale ? Une vraie page de profil le contient presque toujours."""
+    """Le pseudo apparaît-il vraiment dans le contenu de la page ? Une vraie page de profil le contient presque toujours.
+    L'adresse ne compte pas : c'est nous qui y avons écrit le pseudo, elle le contient donc toujours."""
     u = str(username or "").lower()
     if len(u) < 3:
         return False
-    hay = (str(text or "")[:600000] + " " + str(url or "")).lower()
-    return re.search(r"(?<![a-z0-9])" + re.escape(u) + r"(?![a-z0-9])", hay) is not None
+    return re.search(r"(?<![a-z0-9])" + re.escape(u) + r"(?![a-z0-9])", str(text or "")[:600000].lower()) is not None
+
+
+def control_names(username, rnd=None):
+    """Pseudos de contrôle : ils n'existent pas, mais ressemblent au pseudo cherché.
+    1. Même forme (lettres → lettres, chiffres → chiffres, ponctuation gardée) : un site qui accepte cette forme pour tout le monde est démasqué.
+    2. Même début, fin différente après le dernier signe (« cat.3xe » → « cat.k7q ») : démasque les sites qui ignorent ce qui suit
+       un point et affichent la page de « cat ».
+    Un pseudo sans signe particulier garde un contrôle long et aléatoire, qui ne risque pas de tomber sur un vrai compte."""
+    import string
+    rnd = rnd or random.SystemRandom()
+    u = str(username or "")
+
+    def like(part):
+        return "".join(rnd.choice(string.ascii_lowercase) if c.islower() else rnd.choice(string.ascii_uppercase) if c.isupper()
+                       else rnd.choice(string.digits) if c.isdigit() else c for c in part)
+    seps = [i for i, c in enumerate(u) if not c.isalnum()]
+    if not seps:
+        return ["zq" + "".join(rnd.choice(string.ascii_lowercase + string.digits) for _ in range(12))]
+    out = []
+    for _ in range(20):
+        c = like(u)
+        if c.lower() != u.lower():
+            out.append(c)
+            break
+    i = seps[-1]
+    head, tail = u[:i + 1], u[i + 1:]
+    if head.strip("._-") and tail:
+        for _ in range(20):
+            c = head + like(tail)
+            if c.lower() != u.lower() and c not in out:
+                out.append(c)
+                break
+    return out or ["zq" + "".join(rnd.choice(string.ascii_lowercase) for _ in range(12))]
+
+
+def api_like(url, username=""):
+    """Cette adresse est-elle une adresse technique (API), inutile à ouvrir dans un navigateur ?"""
+    u = str(url or "").lower()
+    return bool(re.search(r"/api[/.]|//api\.|\.json(\?|$)|/graphql|[?&]q=", u)) or (bool(username) and str(username).lower() not in u)
 
 
 def host_key(url):
@@ -880,6 +919,8 @@ def merge_hits(hits):
     for h in hits:
         k = host_key(h.get("url")) or str(h.get("site", "")).lower()
         e = by.setdefault(k, {"site": h.get("site"), "cat": h.get("cat") or "", "url": h.get("url"), "engines": set(), "echo": False})
+        if api_like(e["url"]) and not api_like(h.get("url")):
+            e["url"] = h.get("url")  # garde le lien qu'on peut ouvrir, pas l'adresse technique
         e["engines"].add(h.get("engine"))
         e["echo"] = e["echo"] or bool(h.get("echo"))
         e["cat"] = e["cat"] or h.get("cat") or ""
@@ -887,6 +928,7 @@ def merge_hits(hits):
     for e in by.values():
         e["engines"] = sorted(x for x in e["engines"] if x)
         e["conf"] = "forte" if len(e["engines"]) >= 2 or e["echo"] else "moyenne"
+        e["technique"] = api_like(e["url"])
         out.append(e)
     out.sort(key=lambda e: (e["conf"] != "forte", str(e["site"]).lower()))
     return out

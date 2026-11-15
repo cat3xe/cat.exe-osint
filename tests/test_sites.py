@@ -80,7 +80,8 @@ class WhatsMyName(unittest.TestCase):
         self._get = O.get
         self._http = O.HTTP
         O.get = faux_get
-        O._WMN_CTRL.clear()
+        O._CTRL.clear()
+        O._CTRL_NAMES.clear()
 
         class H:
             get = staticmethod(faux_get)

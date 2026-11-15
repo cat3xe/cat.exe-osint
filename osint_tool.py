@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, cardinal, city_match, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, sherlock_valid, sherlock_verdict, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
+from geo_core import (EDITORS, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, resect, sherlock_valid, sherlock_verdict, size_from_dist, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -1224,12 +1224,34 @@ def _site_probe(site, u):
     return None, None
 
 
-def site_control(site):
-    """Teste le site avec un pseudo qui n'existe pas. Si le site répond aussi « trouvé », ses réponses ne valent rien."""
-    k = site[0]
+def controls_for(u):
+    """Pseudos de contrôle adaptés à ce pseudo (gardés le temps de la session pour ne pas refaire les mêmes requêtes)."""
+    if u not in _CTRL_NAMES:
+        _CTRL_NAMES[u] = control_names(u)
+    return _CTRL_NAMES[u]
+
+
+_CTRL_NAMES = {}
+
+
+def all_absent(key, probe, u):
+    """Vrai seulement si le site répond « absent » à TOUS les pseudos de contrôle. `probe(pseudo)` → True / False / None."""
+    k = (key, u)
     if k not in _CTRL:
-        _CTRL[k] = _site_probe(site, _CTRL_NAME)[0]
+        res = []
+        for c in controls_for(u):
+            v = probe(c)
+            res.append(v)
+            if v is not False:
+                break  # un seul contrôle raté suffit : inutile d'interroger davantage le site
+        _CTRL[k] = all(v is False for v in res), (1 if any(v is True for v in res) else None)
     return _CTRL[k]
+
+
+def site_control(site, u=None):
+    """Teste le site avec des pseudos qui n'existent pas. Renvoie 0 (tous absents : site fiable), 1 (le site dit « trouvé » à tort) ou None."""
+    ok, bad = all_absent("liste:" + site[0], lambda c: {1: True, 0: False}.get(_site_probe(site, c)[0]), u or _CTRL_NAME)
+    return 0 if ok else bad
 
 
 def check_site(site, u):
@@ -1242,9 +1264,9 @@ def check_site(site, u):
     if v not in (0, 1) and code in (401, 403, 429, 503):
         return "injoignable", code
     if v == 1:
-        c = site_control(site)
+        c = site_control(site, u)
         if c == 1:
-            return "à vérifier", "le site répond « trouvé » même pour un pseudo inexistant"
+            return "à vérifier", "le site répond « trouvé » même pour un pseudo inexistant de même forme"
         if c is None:
             return "à vérifier", "test de contrôle impossible"
         return "trouvé", code
@@ -6148,16 +6170,31 @@ def view_pages(title, pages, sub=""):
 
 
 def table_pages(title, cols, rows, per=None, sub=""):
-    """Tableau découpé en pages (n / p pour tourner)."""
+    """Tableau découpé en pages (n / p pour tourner). Chaque page tient dans la fenêtre, même quand des cellules passent sur plusieurs lignes."""
+    avail = max(8, con.size.height - 9)
     per = per or max(6, con.size.height - 10)
-    pages = []
-    for k in range(0, max(1, len(rows)), per):
+
+    def build(chunk):
         t = Table(box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
         for c in cols:
             t.add_column(c, overflow="fold")
-        for r in rows[k:k + per]:
+        for r in chunk:
             t.add_row(*[x if isinstance(x, Text) else escape(str(x)) for x in r])
+        return t
+    pages, k = [], 0
+    while k < max(1, len(rows)):
+        n = per
+        for _ in range(6):
+            t = build(rows[k:k + n])
+            try:
+                h = len(con.render_lines(t, con.options))
+            except Exception:
+                break
+            if h <= avail or n <= 2:
+                break
+            n = max(2, min(n - 1, int(n * avail / h)))
         pages.append(t)
+        k += max(1, n)
     view_pages(title, pages, sub or f"{len(rows)} " + tr("ligne(s)"))
 
 
@@ -6893,7 +6930,7 @@ def _wmn_raw(s, u):
     return ok, echoes(u, r.text, getattr(r, "url", ""))
 
 
-_WMN_CTRL = {}
+_WMN_CTRL = _CTRL  # même mémoire de contrôles pour tous les moteurs
 
 
 def wmn_hit(s, u):
@@ -6901,11 +6938,10 @@ def wmn_hit(s, u):
     res = _wmn_raw(s, u)
     if not res or not res[0]:
         return None
-    k = s.get("name")
-    if k not in _WMN_CTRL:
-        c = _wmn_raw(s, _CTRL_NAME)
-        _WMN_CTRL[k] = None if c is None else c[0]
-    if _WMN_CTRL[k] is not False:  # le site dit « trouvé » à tout, ou n'a pas pu être contrôlé : résultat écarté
+    def probe(c):
+        r = _wmn_raw(s, c)
+        return None if r is None else r[0]
+    if not all_absent("wmn:" + str(s.get("name")), probe, u)[0]:  # le site dit « trouvé » à tort, ou n'a pas pu être contrôlé : résultat écarté
         _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
         return None
     return {"url": (s.get("uri_pretty") or url_of(s, u)).replace("{account}", u), "echo": res[1]}
@@ -6966,7 +7002,7 @@ def _sherlock_raw(site, u):
     return sherlock_verdict(site, r.status_code, r.text, u), echoes(u, r.text, getattr(r, "url", ""))
 
 
-_SH_CTRL = {}
+_SH_CTRL = _CTRL
 
 
 def sherlock_hit(name, site, u):
@@ -6974,9 +7010,7 @@ def sherlock_hit(name, site, u):
     v, echo = _sherlock_raw(site, u)
     if v is not True:
         return None
-    if name not in _SH_CTRL:
-        _SH_CTRL[name] = _sherlock_raw(site, _CTRL_NAME)[0]
-    if _SH_CTRL[name] is not False:
+    if not all_absent("sherlock:" + name, lambda c: _sherlock_raw(site, c)[0], u)[0]:
         _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
         return None
     return {"url": site["url"].replace("{}", u), "echo": echo}
@@ -7026,13 +7060,16 @@ def mod_wmn(u=None):
     forts = [r for r in rows if r["conf"] == "forte"]
     log(f"{len(rows)} compte(s) confirmé(s) sur {n_sites} vérifications · {len(forts)} en confiance forte.", G)
     if dropped:
-        con.print(f"[{M}]{dropped} résultat(s) écarté(s) : ces sites répondent « trouvé » même pour un pseudo inexistant, ou n'ont pas pu être contrôlés (faux positifs).")
+        con.print(f"[{M}]{dropped} résultat(s) écarté(s) : ces sites répondent « trouvé » même pour un pseudo inexistant de même forme, ou n'ont pas pu être contrôlés (faux positifs).")
+    if not u.isalnum():
+        con.print(f"[{M}]Ton pseudo contient un signe ( . - _ ). Certains sites ignorent ce qui suit ce signe et montrent un autre compte : "
+                  f"un second contrôle (« {escape(controls_for(u)[-1])} ») les écarte.")
     if rows:
         lab = {"forte": "forte", "moyenne": "moyenne"}
         table_pages(f"PSEUDO · {u}", ["Site", "Catégorie", "Confiance", "Pourquoi", "Lien"],
                     [(r["site"], r["cat"], Text(lab[r["conf"]], style=FIAB_COL["A"] if r["conf"] == "forte" else FIAB_COL["C"]),
                       " + ".join(x for x in ("2 moteurs d'accord" if len(r["engines"]) >= 2 else r["engines"][0] if r["engines"] else "", "pseudo présent dans la page" if r["echo"] else "") if x),
-                      r["url"]) for r in rows])
+                      r["url"] + ("  (adresse technique : cherche le pseudo sur le site)" if r.get("technique") else "")) for r in rows])
         con.print(f"[{M}]Confiance forte : deux bases indépendantes sont d'accord, ou la page contient bien le pseudo. Confiance moyenne : le site a répondu oui, "
                   "mais le pseudo n'apparaît pas dans la page (site en JavaScript, ou réponse à vérifier à la main).")
         add_report("WhatsMyName", u, "\n".join(f"{r['site']} ({r['cat'] or 'confiance ' + r['conf']}) : {r['url']}" for r in rows))

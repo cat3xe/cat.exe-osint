@@ -60,7 +60,7 @@ Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un do
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 161 tests automatiques, réseau simulé |
+| `tests/` | 168 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -79,9 +79,9 @@ La recherche de pseudo interroge deux bases indépendantes, WhatsMyName et Sherl
 Un compte n'est affiché que s'il passe ces filtres :
 1. **Forme du pseudo** : si le site n'accepte pas cette forme (par exemple un point), il n'est pas interrogé.
 2. **Page anti-robot** : une page d'attente ou de blocage ne compte jamais comme un compte.
-3. **Test de contrôle** : le site doit répondre « absent » à un pseudo qui n'existe pas.
+3. **Test de contrôle** : le site doit répondre « absent » à un pseudo qui n'existe pas et qui a la même forme. Pour un pseudo à point, tiret ou souligné (`cat.3xe`), un second contrôle garde le début et change la fin (`cat.k7q`) : il écarte les sites qui ignorent ce qui suit le signe et affichent la page d'un autre compte.
 
-Chaque compte reçoit ensuite une confiance : **forte** si les deux bases sont d'accord ou si la page contient bien le pseudo, **moyenne** sinon.
+Chaque compte reçoit ensuite une confiance : **forte** si les deux bases sont d'accord ou si le contenu de la page contient bien le pseudo (l'adresse ne compte pas), **moyenne** sinon.
 
 ## Justesse mesurée du tri des profils
 La recherche de personne trie les profils trouvés : retenu (le nom affiché correspond) ou écarté (homonyme partiel, autre personne). Ce tri est mesuré sur 213 cas étiquetés à la main, choisis pour leurs pièges : noms composés, particules, accents, initiales, pseudos, villes voisines.

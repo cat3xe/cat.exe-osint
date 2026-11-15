@@ -654,15 +654,20 @@ Un **pseudo** (sans le @). Pour Mastodon : `pseudo@instance` (ex : `cat@piaille.
 - Instagram / Reddit bloquent parfois : réessaie plus tard ou sans VPN.""",
 
 "mod_wmn": """### 🎯 À quoi ça sert
-Tester un pseudo sur **plus de 600 sites** d'un coup (base **WhatsMyName**, utilisée par les pros).
+Tester un pseudo sur **environ 870 sites** avec deux bases indépendantes : **WhatsMyName** et **Sherlock**.
 ### 🧰 Ce qu'il te faut
-Un **pseudo** + internet. La base se télécharge toute seule (et se met à jour chaque semaine).
+Un **pseudo** + internet. Les deux bases se téléchargent toutes seules (et se mettent à jour chaque semaine).
 ### ▶ Étapes
-1. Tape le pseudo → barre de progression (≈ 20 s).
-2. Résultats classés par catégorie, **n / p** pour tourner les pages.
+1. Tape le pseudo → barre de progression (≈ 30 s).
+2. Lis la colonne **Confiance**, puis **n / p** pour tourner les pages.
 3. Propose une **page HTML cliquable** pour ouvrir chaque compte.
+### 🔎 Comment lire
+- **Confiance forte** : les deux bases sont d'accord, ou la page contient bien le pseudo.
+- **Confiance moyenne** : le site a répondu oui, sans que le pseudo apparaisse dans la page. Ouvre le lien pour vérifier.
+- **Résultats écartés** : le site répondait aussi « trouvé » à un pseudo inexistant. Ce sont des faux positifs évités.
 ### 💡 Astuces
-- Teste aussi les **variantes** : `pseudo_`, `pseudo.fr`, `pseudo123`, ancien pseudo (module Prevname).
+- Un pseudo avec un point, un tiret ou un souligné donne moins de résultats : beaucoup de sites n'acceptent pas ces signes.
+- Teste aussi les **variantes** et l'ancien pseudo (module Prevname).
 - Les résultats vont aussi dans le **Graphe d'enquête** : tu vois les recoupements.""",
 
 "mod_person": """### 🎯 À quoi ça sert

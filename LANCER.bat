@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+"%SystemRoot%\System32\chcp.com" 65001 >nul 2>&1
 title CAT.EXE OSINT TOOL
 cd /d "%~dp0"
 set "PYEXE="

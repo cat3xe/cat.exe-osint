@@ -70,7 +70,8 @@ class PagesEtFusion(unittest.TestCase):
 
     def test_pseudo_present_dans_la_page(self):
         self.assertTrue(g.echoes("alice_m", "<title>Alice (@Alice_M)</title>"))
-        self.assertTrue(g.echoes("alice", "", "https://site.test/u/alice"))
+        # l'adresse ne compte pas : c'est l'outil qui y écrit le pseudo, elle le contient toujours
+        self.assertFalse(g.echoes("alice", "", "https://site.test/u/alice"))
         self.assertFalse(g.echoes("alice", "<title>malice</title> alicette"))
         self.assertFalse(g.echoes("al", "al al al"))
         self.assertFalse(g.echoes("alice", "page générique du site"))
@@ -116,6 +117,72 @@ def faux(url, **kw):
     return Rep(200 if nom == "alice" else 404, f"<h1>{nom}</h1>" if nom == "alice" else "", url)
 
 
+class PseudosDeControle(unittest.TestCase):
+    def test_pseudo_simple_controle_long(self):
+        c = g.control_names("alice")
+        self.assertEqual(len(c), 1)
+        self.assertTrue(c[0].isalnum() and len(c[0]) >= 12 and c[0] != "alice")
+
+    def test_pseudo_a_point_garde_sa_forme(self):
+        import random
+        c = g.control_names("cat.3xe", random.Random(1))
+        self.assertEqual(len(c), 2)
+        self.assertRegex(c[0], r"^[a-z]{3}\.[0-9][a-z]{2}$")       # même forme, autres caractères
+        self.assertRegex(c[1], r"^cat\.[0-9][a-z]{2}$")             # même début, autre fin
+        self.assertNotIn("cat.3xe", c)
+
+    def test_autres_signes(self):
+        import random
+        for u in ("jean_dupont", "a-b", "x.y.z", "Jean.Dupont99"):
+            c = g.control_names(u, random.Random(2))
+            self.assertTrue(all(len(x) == len(u) and x.lower() != u.lower() for x in c), (u, c))
+            self.assertTrue(all([ch.isalnum() for ch in x] == [ch.isalnum() for ch in u] for x in c), (u, c))
+
+    def test_adresse_technique(self):
+        self.assertTrue(g.api_like("https://discord.com/api/v9/unique-username/username-attempt-unauthed"))
+        self.assertTrue(g.api_like("https://mastodon.social/api/v2/search?q=cat&type=accounts"))
+        self.assertFalse(g.api_like("https://www.tiktok.com/@cat.3xe?lang=en", "cat.3xe"))
+        self.assertTrue(g.api_like("https://discord.com", "cat.3xe"))
+
+    def test_fusion_prefere_le_lien_lisible(self):
+        rows = g.merge_hits([{"site": "X", "url": "https://x.test/api/v1/users/alice", "engine": "WhatsMyName", "echo": False},
+                             {"site": "X", "url": "https://www.x.test/alice", "engine": "Sherlock", "echo": False}])
+        self.assertEqual((rows[0]["url"], rows[0]["technique"]), ("https://www.x.test/alice", False))
+
+
+def faux_point(url, **kw):
+    """Site qui ignore ce qui suit le point : /cat.3xe et /cat.k7q montrent tous deux la page de « cat »."""
+    nom = url.rstrip("/").split("/")[-1]
+    if "ignorepoint" in url:
+        return Rep(200, "<h1>cat</h1>", url) if nom.split(".")[0] == "cat" else Rep(404, "", url)
+    return Rep(200, f"<h1>{nom}</h1>", url) if nom == "cat.3xe" else Rep(404, "", url)
+
+
+class PiegeDuPoint(unittest.TestCase):
+    def setUp(self):
+        self._http = O.HTTP
+
+        class H:
+            get = staticmethod(faux_point)
+            post = staticmethod(faux_point)
+        O.HTTP = H()
+        O._CTRL.clear()
+        O._CTRL_NAMES.clear()
+        O._WMN_STATS.clear()
+
+    def tearDown(self):
+        O.HTTP = self._http
+
+    def test_site_qui_ignore_la_fin_du_pseudo_est_ecarte(self):
+        self.assertIsNone(O.sherlock_hit("Piege", {"errorType": "status_code", "url": "https://ignorepoint.test/{}"}, "cat.3xe"))
+        self.assertIsNone(O.wmn_hit({"name": "Piege", "uri_check": "https://ignorepoint.test/{account}", "e_code": 200, "e_string": ""}, "cat.3xe"))
+        self.assertEqual(O._WMN_STATS.get("drop"), 2)
+
+    def test_site_correct_garde_le_vrai_compte(self):
+        h = O.sherlock_hit("Bon", {"errorType": "status_code", "url": "https://bon.test/{}"}, "cat.3xe")
+        self.assertEqual(h, {"url": "https://bon.test/cat.3xe", "echo": True})
+
+
 class MoteurSherlock(unittest.TestCase):
     def setUp(self):
         self._http = O.HTTP
@@ -124,8 +191,8 @@ class MoteurSherlock(unittest.TestCase):
             get = staticmethod(faux)
             post = staticmethod(faux)
         O.HTTP = H()
-        O._SH_CTRL.clear()
-        O._WMN_CTRL.clear()
+        O._CTRL.clear()
+        O._CTRL_NAMES.clear()
         O._WMN_STATS.clear()
 
     def tearDown(self):
