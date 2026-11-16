@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (EDITORS, EXT, FIAB, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, ctrl_name, dist_from_size, dns_agree, echoes, evidence_entry, evidence_verify, ext_argv, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, person_score, person_usernames, photo_checks, places_of, profile_match, redact, resect, sherlock_valid, sherlock_verdict, size_from_dist, strip_ansi, sun_pos, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
+from geo_core import (COUNTRIES, EDITORS, EXT, FIAB, LEFT_DRIVING, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, country_fr, country_votes, ctrl_name, dist_from_size, dns_agree, dossier_brief, echoes, evidence_entry, evidence_verify, ext_argv, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, ground_entities, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, normalize_clues, normalize_entities, person_score, person_usernames, photo_checks, places_of, profile_match, rank_labels, redact, resect, sherlock_valid, sherlock_verdict, size_from_dist, strip_ansi, sun_pos, text_clues, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -6489,7 +6489,7 @@ def mod_ipbulk():
             log("Fichier illisible.", R)
             return pause()
     else:
-        text = ask_multiline("Colle le texte (ligne vide pour terminer)")
+        text = ask_multiline("Colle le texte")
     ips_all = extract_ips(text)
     if not ips_all:
         log("Aucune adresse IP publique dans ce texte (les adresses privées comme 192.168.x.x sont ignorées).", Y)
@@ -7864,7 +7864,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"h8mail": "email", "GitFive": "compte", "Toutatis": "compte", "mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"IA spécialisée": None, "mod_aispec": None, "h8mail": "email", "GitFive": "compte", "Toutatis": "compte", "mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -8726,6 +8726,238 @@ def mod_autoscan():
 
 
 # ---------- 🗂 Sources pro (Censys, Hunter, IntelX, DeHashed, Epieos, OSINT Framework…)
+# ============================================================ 🧠 IA LOCALES SPÉCIALISÉES OSINT / GEOINT
+# Tout tourne sur le PC : StreetCLIP (modèle de géolocalisation de photos de rue) et les modèles Ollama déjà réglés.
+# Règle commune : ce qu'une IA propose est une piste (niveau C), jamais un fait. Chaque réponse est contrôlée avant d'être affichée.
+STREETCLIP_ID = "geolocal/StreetCLIP"
+_SCLIP = {}
+
+
+def streetclip_ready():
+    try:
+        import importlib.util
+        return importlib.util.find_spec("torch") is not None and importlib.util.find_spec("transformers") is not None
+    except Exception:
+        return False
+
+
+def streetclip_install():
+    import subprocess
+    if getattr(sys, "frozen", False):
+        log("Dans la version .exe, StreetCLIP ne peut pas s'installer : lance l'outil avec LANCER.bat.", Y)
+        return False
+    for c in ([sys.executable, "-m", "pip", "install", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"],
+              [sys.executable, "-m", "pip", "install", "transformers"]):
+        log("$ pip " + " ".join(c[3:]), B)
+        if subprocess.run(c).returncode != 0:
+            log("Installation échouée.", R)
+            return False
+    return streetclip_ready()
+
+
+def streetclip_load():
+    if "m" not in _SCLIP:
+        import warnings
+        warnings.filterwarnings("ignore")
+        from transformers import CLIPModel, CLIPProcessor
+        _SCLIP["m"] = CLIPModel.from_pretrained(STREETCLIP_ID).eval()
+        _SCLIP["p"] = CLIPProcessor.from_pretrained(STREETCLIP_ID)
+    return _SCLIP["m"], _SCLIP["p"]
+
+
+def streetclip_probs(img, labels_en):
+    """Probabilité que la photo ait été prise dans chacun des lieux donnés (noms en anglais). C'est la seule fonction qui fait tourner le modèle."""
+    import torch
+    m, p = streetclip_load()
+    out = []
+    with torch.no_grad():
+        ie = m.get_image_features(**p(images=img.convert("RGB"), return_tensors="pt"))
+        ie = ie / ie.norm(dim=-1, keepdim=True)
+        for i in range(0, len(labels_en), 64):
+            t = p(text=[f"A Street View photo in {x}." for x in labels_en[i:i + 64]], return_tensors="pt", padding=True)
+            te = m.get_text_features(**t)
+            out.append(te / te.norm(dim=-1, keepdim=True))
+        probs = (m.logit_scale.exp() * ie @ torch.cat(out).T).softmax(dim=-1)[0]
+    return [float(x) for x in probs]
+
+
+def streetclip_countries(img, k=5):
+    """Pays les plus probables d'une photo de rue. Renvoie ([(pays en français, proba)], verdict net / partagé / indécis)."""
+    probs = streetclip_probs(img, [en for _, en in COUNTRIES])
+    return rank_labels([fr for fr, _ in COUNTRIES], probs, k)
+
+
+def ask_ai_json(prompt, system=None):
+    """Question à l'IA texte locale avec réponse en JSON (température 0 : la même question donne la même réponse). Renvoie le dictionnaire ou None."""
+    want = CFG.get("ollama_text") or "qwen2.5:3b"
+    m = ollama_setup(interactive=False, m=want) or ollama_setup(interactive=True, m=want)
+    if not m:
+        raise RuntimeError("IA locale indisponible : installe Ollama et le modèle (menu Réglages → IA locale)")
+    msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": ai_lang(prompt)}]
+    r = OLL.post(OLLAMA + "/api/chat", json={"model": m, "messages": msgs, "stream": False, "format": "json", "options": {"temperature": 0, "num_ctx": 8192}}, timeout=1800)
+    r.raise_for_status()
+    return parse_json(r.json()["message"]["content"])
+
+
+AI_ENT_SYS = ("Tu es un extracteur d'entités pour une enquête en sources ouvertes. Tu ne résumes pas, tu n'expliques pas, tu n'inventes rien. "
+              "Tu recopies les entités EXACTEMENT comme elles sont écrites dans le texte. Si une catégorie est vide, renvoie une liste vide.")
+AI_ENT_PROMPT = ('Extrais les entités du texte ci-dessous. Réponds UNIQUEMENT en JSON : {"personnes": [], "organisations": [], "lieux": [], "dates": [], "pseudos": []}\n\nTEXTE :\n')
+AI_CLUES_PROMPT = """Tu es un analyste GEOINT. Décris UNIQUEMENT ce que tu vois sur la photo, sans deviner. Réponds UNIQUEMENT en JSON :
+{"textes": ["chaque texte lisible, recopié tel quel (panneaux, enseignes, plaques)"],
+ "conduite": "gauche, droite ou inconnue (côté de la route où roulent les véhicules)",
+ "plaque": "forme et couleurs des plaques d'immatriculation, ou vide",
+ "marquage": "lignes au sol, couleur, forme des panneaux, ou vide",
+ "vegetation": "végétation et climat apparent, ou vide",
+ "architecture": "style des bâtiments, poteaux, mobilier urbain, ou vide",
+ "autres": "tout autre indice utile, ou vide",
+ "pays": [{"pays": "nom du pays", "confiance": 0, "raisons": ["indice visible qui le justifie"]}]}
+Donne au plus 4 pays, du plus au moins probable. Si rien ne permet de trancher, renvoie une liste "pays" vide."""
+AI_ANALYST_SYS = ("Tu es un analyste OSINT rigoureux. Tu travailles UNIQUEMENT à partir des éléments fournis. Tu ne cites aucun nom, compte, lieu ou date absent de la liste. "
+                  "Chaque élément porte un niveau : A = vérifié à la source, B = existe mais lien avec la cible non prouvé, C = estimation, ? = non évalué. "
+                  "Tu ne présentes jamais un élément B, C ou ? comme un fait. Tu écris en français, en phrases courtes.")
+AI_ANALYST_PROMPT = """Voici un dossier d'enquête. Rédige, avec ces quatre titres :
+## Ce qui est établi
+(uniquement des éléments A)
+## Ce qui reste à prouver
+(les éléments B et C qui comptent, et ce qui manque pour les confirmer)
+## Incohérences
+(éléments qui se contredisent ; écris « aucune relevée » s'il n'y en a pas)
+## Prochaines vérifications
+(5 actions au plus, concrètes, dans l'ordre d'utilité)
+
+"""
+
+
+def ai_entities(text):
+    """Entités d'un texte par l'IA locale, puis contrôle : seules celles qui figurent réellement dans le texte sont gardées.
+    Renvoie (gardées, écartées)."""
+    ents = normalize_entities(ask_ai_json(AI_ENT_PROMPT + text[:12000], AI_ENT_SYS))
+    return ground_entities(ents, text)
+
+
+def ai_clues(img):
+    """Fiche d'indices d'une photo par l'IA de vision locale, mise en forme et contrôlée."""
+    txt, eng = ask_vision(AI_CLUES_PROMPT, img_b64(img))
+    return normalize_clues(parse_json(txt)), eng
+
+
+def mod_aispec():
+    con.rule(f"[{G}]🧠 IA LOCALES SPÉCIALISÉES · OSINT / GEOINT")
+    con.print(f"[{M}]Des IA qui tournent sur ton PC, chacune réglée pour une tâche d'enquête. Rien n'est envoyé sur internet. "
+              "Ce qu'elles proposent est une piste à vérifier, jamais un fait : chaque réponse est contrôlée avant d'être affichée.")
+    while True:
+        c = select("Quelle IA ?", [
+            {"label": "🌍 Pays d'une photo de rue", "value": "street", "desc": "StreetCLIP · modèle de géolocalisation"},
+            {"label": "🔎 Fiche d'indices d'une photo", "value": "clues", "desc": "IA de vision · textes, conduite, plaques, végétation"},
+            {"label": "🔤 Indices d'un texte vu sur une photo", "value": "text", "desc": "sans IA · écriture et langue → pays"},
+            {"label": "🧲 Entités d'un texte ou d'une page", "value": "ent", "desc": "IA texte · noms, organisations, lieux, dates"},
+            {"label": "🧑‍💼 Analyste du dossier", "value": "ana", "desc": "IA texte · établi / à prouver / incohérences / suite"},
+            {"label": "← Retour", "value": None}])
+        if c is None:
+            return
+        try:
+            if c == "street":
+                if not streetclip_ready() and not (ask_yes("StreetCLIP a besoin de deux bibliothèques (≈ 1 Go, une seule fois). Les installer ?", True) and streetclip_install()):
+                    continue
+                f = ask_path()
+                if not f:
+                    continue
+                img = Image.open(f)
+                con.print(f"[{M}]Premier lancement : le modèle (≈ 1,7 Go) se télécharge une fois, puis il fonctionne hors ligne.")
+                with con.status(f"[{P}]StreetCLIP analyse la photo…", spinner="dots12"):
+                    top, verdict = streetclip_countries(img, 6)
+                top = [(p, v) for p, v in top if v >= 0.01] or top[:1]
+                lab = {"net": "le premier pays se détache nettement", "partagé": "plusieurs pays restent possibles", "indécis": "le modèle ne reconnaît pas le lieu : résultat à ne pas utiliser"}[verdict]
+                con.print(kv([(f"{i}. {p}", f"{v * 100:.0f} %") for i, (p, v) in enumerate(top, 1)]
+                             + [("Lecture", lab), ("Fiabilité", Text.from_markup(fiab_tag("C", "estimation d'un modèle, à confirmer par un indice visible")))], "🌍 Pays probables (StreetCLIP)", G))
+                con.print(f"[{M}]StreetCLIP est entraîné sur des photos de rue : il est peu fiable sur un intérieur, un portrait ou un paysage sans route.")
+                add_report("IA spécialisée", f"StreetCLIP · {Path(f).name}", "ESTIMATION (à vérifier) · " + " · ".join(f"{p} {v * 100:.0f} %" for p, v in top) + f" · {lab}")
+            elif c == "clues":
+                f = ask_path()
+                if not f:
+                    continue
+                img, info, gps, cam = read_exif(f)
+                with con.status(f"[{P}]L'IA de vision observe la photo… (10 s à 2 min)", spinner="dots12"):
+                    cl, eng = ai_clues(img)
+                tc = [x for t in cl["textes"] for x in text_clues(t)]
+                src = {"IA de vision": [p["pays"] for p in cl["pays"]]}
+                if tc:
+                    src["écriture lue"] = list(dict.fromkeys(p for x in tc for p in x["pays"]))[:3]
+                if streetclip_ready() and ask_yes("Recouper avec StreetCLIP ?", True):
+                    with con.status(f"[{P}]StreetCLIP analyse la photo…", spinner="dots12"):
+                        src["StreetCLIP"] = [p for p, v in streetclip_countries(img, 3)[0] if v >= 0.10]  # un pays à moins de 10 % n'est pas un avis
+                votes = country_votes(src, cl["conduite"])
+                rows = [("Textes lus", "\n".join(cl["textes"]) or "aucun"), ("Indices d'écriture", "\n".join(f"{x['indice']} → {', '.join(x['pays'][:5])}" for x in tc) or None),
+                        ("Sens de circulation", cl["conduite"])] + [(k.capitalize(), v) for k, v in cl["indices"].items() if v]
+                con.print(kv(rows, f"🔎 Ce que voit l'IA ({eng})", P))
+                t = Table(title="Pays recoupés", box=box.ROUNDED, border_style="#2b3158", header_style="bold #00e5ff", expand=True)
+                for col_ in ("Pays", "Sources d'accord", "Cohérence"):
+                    t.add_column(col_, overflow="fold")
+                for v in votes[:6]:
+                    n = len(v["sources"])
+                    t.add_row(v["pays"], Text(f"{n} · " + ", ".join(v["sources"]), style=FIAB_COL["B"] if n >= 2 else FIAB_COL["C"]),
+                              Text("ok" if v["coherent"] else f"contredit par la conduite à {cl['conduite']}", style=FIAB_COL["A"] if v["coherent"] else R))
+                if not votes:
+                    t.add_row("aucun pays proposé", "—", "—")
+                con.print(t)
+                con.print(f"[{M}]Un pays cité par plusieurs sources indépendantes est une piste sérieuse, pas une preuve. Une IA de vision peut lire un texte de travers : "
+                          "vérifie les textes lus sur l'image, puis confirme le lieu avec Street View.")
+                add_report("IA spécialisée", f"Indices · {Path(f).name}", "ESTIMATION (à vérifier) · " + " · ".join(f"{v['pays']} ({len(v['sources'])} source(s))" for v in votes[:5])
+                           + (f" · textes lus : {' | '.join(cl['textes'][:6])}" if cl["textes"] else ""))
+            elif c == "text":
+                txt = ask_text("Texte lu sur la photo (copie-le tel quel)").strip()
+                tc = text_clues(txt)
+                if not tc:
+                    log("Aucun indice : alphabet latin sans lettre particulière. Ce texte ne permet pas de distinguer un pays.", Y)
+                else:
+                    con.print(kv([(x["indice"], ", ".join(x["pays"]) + ("  · indice fort" if x["force"] == "forte" else "  · indice moyen")) for x in tc] +
+                                 [("Lecture", "Calcul direct sur les lettres, sans IA : le résultat est sûr pour ce texte. Une langue se parle dans plusieurs pays, et une enseigne peut être étrangère.")],
+                                 "🔤 Indices du texte", G))
+                    add_report("IA spécialisée", f"Texte « {txt[:40]} »", " · ".join(f"{x['indice']} → {', '.join(x['pays'][:4])}" for x in tc))
+            elif c == "ent":
+                src = select("D'où vient le texte ?", [{"label": "🌐 Une page web", "value": "u"}, {"label": "📋 Un texte collé", "value": "t"}, {"label": "← Retour", "value": None}])
+                if src is None:
+                    continue
+                if src == "u":
+                    u = ask_text("Adresse de la page").strip()
+                    if not u:
+                        continue
+                    u = u if u.startswith("http") else "https://" + u
+                    text, title = html_text(get(u, 20).text), u
+                else:
+                    text, title = ask_multiline("Colle le texte"), "texte collé"
+                if len(text.strip()) < 20:
+                    log("Texte trop court.", Y)
+                    continue
+                with con.status(f"[{P}]L'IA lit le texte…", spinner="dots12"):
+                    kept, dropped = ai_entities(text)
+                con.print(kv([(k.capitalize(), "\n".join(v)) for k, v in kept.items() if v] or [("Résultat", "aucune entité trouvée")], "🧲 Entités présentes dans le texte", G))
+                if dropped:
+                    con.print(f"[{Y}]{len(dropped)} entité(s) proposée(s) par l'IA mais absente(s) du texte, écartée(s) : {escape(', '.join(v for _, v in dropped[:8]))}")
+                root = gnode("url" if src == "u" else "note", title[:100], {"url": title} if src == "u" else None, "enquete:" + gname())
+                for k, typ in (("personnes", "personne"), ("organisations", "organisation"), ("lieux", "lieu"), ("pseudos", "pseudo")):
+                    for v in kept.get(k, [])[:30]:
+                        gnode(typ, v, None, root, "cité", fiab="B", src=f"cité dans {title[:60]} (relevé par l'IA locale, présence dans le texte vérifiée)")
+                gsave()
+                add_report("IA spécialisée", f"Entités · {title[:50]}", " · ".join(f"{k} : {', '.join(v[:8])}" for k, v in kept.items() if v) or "aucune")
+            elif c == "ana":
+                brief, n = dossier_brief(gload())
+                if n < 2:
+                    log("Le dossier est presque vide : lance d'abord des recherches.", Y)
+                    continue
+                con.print(f"[{M}]Dossier « {gname().replace('_', ' ')} » · {n} élément(s) transmis à l'IA locale, avec leur niveau de fiabilité.")
+                t = ai_print(AI_ANALYST_SYS + "\n\n" + AI_ANALYST_PROMPT + brief, "Analyste du dossier")
+                if t:
+                    con.print(f"[{FIAB_COL['C']}]● Analyse rédigée par une IA : c'est une aide à la réflexion. Vérifie chaque point dans le dossier avant de t'en servir.")
+                    add_report("mod_aispec", "Analyste du dossier", t[:4000])
+        except Exception as e:
+            if "IA locale indisponible" in str(e) or "aucune IA de vision" in str(e) or isinstance(e, requests.ConnectionError):
+                con.print(Panel("Cette IA a besoin d'Ollama et de ses modèles : menu Réglages → IA locale (gratuit, tourne sur ton PC).", title="IA locale", border_style=Y))
+            else:
+                log(f"Erreur : {sl_err(e)}", R)
+        pause()
+
+
 # ------------------------------------------------------------ 🧰 OUTILS EXTERNES : h8mail, GitFive, Toutatis
 def ext_installed(tool):
     try:
@@ -9759,6 +9991,22 @@ Garder une **preuve** d'une page ou d'un fichier avant qu'il disparaisse : copie
 ### 🔎 Comment lire
 - Le journal prouve que **rien n'a changé depuis** la capture.
 - Il ne prouve pas la date à lui seul : c'est le rôle de l'archive publique.""",
+"mod_aispec": """### 🎯 À quoi ça sert
+Cinq aides spécialisées qui tournent **sur ton PC**. Rien n'est envoyé sur internet.
+### 🧰 Ce qu'il te faut
+- **Pays d'une photo de rue** : StreetCLIP (≈ 2,7 Go la première fois, installation proposée).
+- **Fiche d'indices**, **Entités**, **Analyste** : Ollama et ses modèles (Réglages → IA locale).
+- **Indices d'un texte** : rien, c'est un calcul direct.
+### ▶ Par où commencer
+1. Une photo de rue → **Fiche d'indices**, puis recoupe avec StreetCLIP.
+2. Un texte lisible sur la photo → **Indices d'un texte** : l'écriture et certaines lettres désignent un pays.
+3. Une page ou un article → **Entités**, pour remplir le graphe.
+4. En fin d'enquête → **Analyste du dossier**.
+### 🔎 Comment lire
+- Une IA **propose**, elle ne prouve pas : tout est classé niveau **C**.
+- Un pays cité par **plusieurs sources indépendantes** est une piste sérieuse.
+- Les entités absentes du texte sont **écartées** : l'IA ne peut pas inventer un nom.
+- StreetCLIP est fait pour les photos de rue, pas pour un intérieur ou un portrait.""",
 "mod_exttools": """### 🎯 À quoi ça sert
 Lancer **h8mail**, **GitFive** et **Toutatis** depuis Cat.exe, sans ligne de commande.
 ### 🧰 Ce qu'il te faut
@@ -9806,6 +10054,7 @@ SECTIONS = [
         ("mod_maplink", "📎 Lien de carte → coordonnées", "Google Maps · Waze · OSM…", "Colle un lien Google Maps (même court), Apple Plans, Waze, OpenStreetMap, Bing, Yandex ou Here : l'outil sort les coordonnées, l'adresse, tous les formats et ouvre le lieu dans 8 autres cartes (Earth, Mapillary, Géoportail, Peakvisor…)."),
         ("mod_photobatch", "👣 Lot de photos → trajet", "carte + chronologie", "Donne un dossier de photos : l'outil lit les dates et GPS de toutes les photos, les range dans l'ordre, trace le trajet sur une carte, liste les appareils utilisés et exporte la chronologie pour Excel."),
         ("mod_imgcompare", "🪞 Comparer deux images", "même photo ? retouche ?", "Dit si deux images sont la même (recadrée, recompressée, retouchée) grâce à 3 empreintes visuelles, et crée une carte des différences. Pratique pour trouver l'original et repérer une retouche."),
+        ("mod_aispec", "🧠 IA spécialisées", "StreetCLIP · indices · entités · analyste", "Cinq aides qui tournent sur ton PC, sans internet : StreetCLIP (pays d'une photo de rue), fiche d'indices d'une photo par l'IA de vision recoupée avec l'écriture lue et StreetCLIP, indices d'un texte vu sur une photo (sans IA), entités d'un texte avec contrôle anti-invention, et un analyste qui relit le dossier.\n\nTout ce qu'une IA propose est classé comme piste à vérifier."),
         ("mod_img2gps", "📌 Image → coordonnées", "GPS · IA locale", "Tu donnes une image (fichier ou lien), l'outil sort directement ses coordonnées : GPS caché dans le fichier, sinon estimation par l'IA locale GeoCLIP (top 5) et l'IA de vision, avec adresse, formats DMS/UTM et carte."),
         ("mod_revimg", "🔎 Recherche inversée d'image", "Lens · Yandex · TinEye · Bing", "Retrouve où une image apparaît sur internet (original, première publication, copies) sur 6 moteurs à la fois : Google Lens, Yandex, TinEye, Bing, SauceNAO, Baidu."),
         ("mod_geo", "📍 Géoloc photo", "100 % auto par l'IA", "Trouve où une photo a été prise et où se tenait le photographe : GPS caché → IA GeoCLIP → IA de vision qui repère les monuments → triangulation → heure par les ombres.\n\nTu donnes juste la photo."),
@@ -9875,7 +10124,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_exttools": "h8mail gitfive toutatis externe instagram github fuites email outils", "mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_aispec": "ia locale specialisee streetclip pays photo indices entites analyste dossier ollama vision langue ecriture", "mod_exttools": "h8mail gitfive toutatis externe instagram github fuites email outils", "mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",

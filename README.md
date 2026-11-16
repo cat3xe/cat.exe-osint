@@ -60,7 +60,7 @@ Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un do
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 178 tests automatiques, réseau simulé |
+| `tests/` | 208 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -82,6 +82,19 @@ Un compte n'est affiché que s'il passe ces filtres :
 3. **Test de contrôle** : le site doit répondre « absent » à un pseudo qui n'existe pas et qui a la même forme. Pour un pseudo à point, tiret ou souligné (`cat.3xe`), un second contrôle garde le début et change la fin (`cat.k7q`) : il écarte les sites qui ignorent ce qui suit le signe et affichent la page d'un autre compte.
 
 Chaque compte reçoit ensuite une confiance : **forte** si les deux bases sont d'accord ou si le contenu de la page contient bien le pseudo (l'adresse ne compte pas), **moyenne** sinon.
+
+## IA locales spécialisées
+Le module **IA spécialisées** regroupe cinq aides qui tournent sur le PC, sans internet.
+
+| Aide | Moteur | Ce qu'elle fait |
+|---|---|---|
+| Pays d'une photo de rue | [StreetCLIP](https://huggingface.co/geolocal/StreetCLIP), modèle de géolocalisation | classe les pays possibles, et dit si le premier se détache |
+| Fiche d'indices d'une photo | IA de vision (Ollama) | textes lus, sens de circulation, plaques, végétation, puis pays recoupés entre l'IA, l'écriture lue et StreetCLIP |
+| Indices d'un texte | aucun modèle, calcul direct | écriture et lettres propres à une langue → pays (thaï, hangul, « ї » ukrainien, « ß » allemand…) |
+| Entités d'un texte | IA texte (Ollama) | noms, organisations, lieux, dates ; toute entité absente du texte est écartée |
+| Analyste du dossier | IA texte (Ollama) | ce qui est établi, ce qui reste à prouver, incohérences, prochaines vérifications |
+
+Garde-fous : tout ce qu'une IA propose est classé comme estimation (niveau C). Un pays contredit par le sens de circulation observé est signalé. L'analyste reçoit le niveau de fiabilité de chaque élément et a pour consigne de ne rien présenter d'autre que les éléments A comme des faits.
 
 ## Outils externes
 Le module **Outils externes** lance trois outils reconnus sans quitter Cat.exe. Il les installe à la demande (`pip`), affiche leur sortie, l'enregistre dans `resultats/` et envoie ce qu'ils trouvent dans le graphe.

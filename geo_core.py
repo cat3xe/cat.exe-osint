@@ -1003,3 +1003,249 @@ def redact(text, secrets):
         if sec and len(str(sec)) >= 4:
             out = out.replace(str(sec), "•••")
     return out
+
+
+# ============================================================ IA SPÉCIALISÉES : données et contrôles (aucun modèle ici)
+# (nom français, nom anglais utilisé par les modèles)
+COUNTRIES = [
+    ("Afghanistan", "Afghanistan"), ("Afrique du Sud", "South Africa"), ("Albanie", "Albania"), ("Algérie", "Algeria"), ("Allemagne", "Germany"), ("Andorre", "Andorra"),
+    ("Angola", "Angola"), ("Arabie saoudite", "Saudi Arabia"), ("Argentine", "Argentina"), ("Arménie", "Armenia"), ("Australie", "Australia"), ("Autriche", "Austria"),
+    ("Azerbaïdjan", "Azerbaijan"), ("Bahamas", "Bahamas"), ("Bahreïn", "Bahrain"), ("Bangladesh", "Bangladesh"), ("Barbade", "Barbados"), ("Belgique", "Belgium"),
+    ("Belize", "Belize"), ("Bénin", "Benin"), ("Bhoutan", "Bhutan"), ("Biélorussie", "Belarus"), ("Birmanie", "Myanmar"), ("Bolivie", "Bolivia"),
+    ("Bosnie-Herzégovine", "Bosnia and Herzegovina"), ("Botswana", "Botswana"), ("Brésil", "Brazil"), ("Brunei", "Brunei"), ("Bulgarie", "Bulgaria"), ("Burkina Faso", "Burkina Faso"),
+    ("Burundi", "Burundi"), ("Cambodge", "Cambodia"), ("Cameroun", "Cameroon"), ("Canada", "Canada"), ("Cap-Vert", "Cape Verde"), ("Chili", "Chile"), ("Chine", "China"),
+    ("Chypre", "Cyprus"), ("Colombie", "Colombia"), ("Corée du Nord", "North Korea"), ("Corée du Sud", "South Korea"), ("Costa Rica", "Costa Rica"), ("Côte d'Ivoire", "Ivory Coast"),
+    ("Croatie", "Croatia"), ("Cuba", "Cuba"), ("Danemark", "Denmark"), ("Djibouti", "Djibouti"), ("Égypte", "Egypt"), ("Émirats arabes unis", "United Arab Emirates"),
+    ("Équateur", "Ecuador"), ("Érythrée", "Eritrea"), ("Espagne", "Spain"), ("Estonie", "Estonia"), ("Eswatini", "Eswatini"), ("États-Unis", "United States"), ("Éthiopie", "Ethiopia"),
+    ("Fidji", "Fiji"), ("Finlande", "Finland"), ("France", "France"), ("Gabon", "Gabon"), ("Gambie", "Gambia"), ("Géorgie", "Georgia"), ("Ghana", "Ghana"), ("Grèce", "Greece"),
+    ("Groenland", "Greenland"), ("Guatemala", "Guatemala"), ("Guinée", "Guinea"), ("Guyana", "Guyana"), ("Haïti", "Haiti"), ("Honduras", "Honduras"), ("Hong Kong", "Hong Kong"),
+    ("Hongrie", "Hungary"), ("Inde", "India"), ("Indonésie", "Indonesia"), ("Irak", "Iraq"), ("Iran", "Iran"), ("Irlande", "Ireland"), ("Islande", "Iceland"), ("Israël", "Israel"),
+    ("Italie", "Italy"), ("Jamaïque", "Jamaica"), ("Japon", "Japan"), ("Jordanie", "Jordan"), ("Kazakhstan", "Kazakhstan"), ("Kenya", "Kenya"), ("Kirghizistan", "Kyrgyzstan"),
+    ("Kosovo", "Kosovo"), ("Koweït", "Kuwait"), ("Laos", "Laos"), ("Lesotho", "Lesotho"), ("Lettonie", "Latvia"), ("Liban", "Lebanon"), ("Liberia", "Liberia"), ("Libye", "Libya"),
+    ("Liechtenstein", "Liechtenstein"), ("Lituanie", "Lithuania"), ("Luxembourg", "Luxembourg"), ("Macao", "Macau"), ("Macédoine du Nord", "North Macedonia"), ("Madagascar", "Madagascar"),
+    ("Malaisie", "Malaysia"), ("Malawi", "Malawi"), ("Maldives", "Maldives"), ("Mali", "Mali"), ("Malte", "Malta"), ("Maroc", "Morocco"), ("Maurice", "Mauritius"),
+    ("Mauritanie", "Mauritania"), ("Mexique", "Mexico"), ("Moldavie", "Moldova"), ("Monaco", "Monaco"), ("Mongolie", "Mongolia"), ("Monténégro", "Montenegro"),
+    ("Mozambique", "Mozambique"), ("Namibie", "Namibia"), ("Népal", "Nepal"), ("Nicaragua", "Nicaragua"), ("Niger", "Niger"), ("Nigeria", "Nigeria"), ("Norvège", "Norway"),
+    ("Nouvelle-Zélande", "New Zealand"), ("Oman", "Oman"), ("Ouganda", "Uganda"), ("Ouzbékistan", "Uzbekistan"), ("Pakistan", "Pakistan"), ("Palestine", "Palestine"),
+    ("Panama", "Panama"), ("Papouasie-Nouvelle-Guinée", "Papua New Guinea"), ("Paraguay", "Paraguay"), ("Pays-Bas", "Netherlands"), ("Pérou", "Peru"), ("Philippines", "Philippines"),
+    ("Pologne", "Poland"), ("Porto Rico", "Puerto Rico"), ("Portugal", "Portugal"), ("Qatar", "Qatar"), ("République centrafricaine", "Central African Republic"),
+    ("République démocratique du Congo", "Democratic Republic of the Congo"), ("République dominicaine", "Dominican Republic"), ("République du Congo", "Republic of the Congo"),
+    ("République tchèque", "Czech Republic"), ("Roumanie", "Romania"), ("Royaume-Uni", "United Kingdom"), ("Russie", "Russia"), ("Rwanda", "Rwanda"), ("Saint-Marin", "San Marino"),
+    ("Salvador", "El Salvador"), ("Sénégal", "Senegal"), ("Serbie", "Serbia"), ("Seychelles", "Seychelles"), ("Sierra Leone", "Sierra Leone"), ("Singapour", "Singapore"),
+    ("Slovaquie", "Slovakia"), ("Slovénie", "Slovenia"), ("Somalie", "Somalia"), ("Soudan", "Sudan"), ("Soudan du Sud", "South Sudan"), ("Sri Lanka", "Sri Lanka"), ("Suède", "Sweden"),
+    ("Suisse", "Switzerland"), ("Suriname", "Suriname"), ("Syrie", "Syria"), ("Tadjikistan", "Tajikistan"), ("Taïwan", "Taiwan"), ("Tanzanie", "Tanzania"), ("Tchad", "Chad"),
+    ("Thaïlande", "Thailand"), ("Timor oriental", "East Timor"), ("Togo", "Togo"), ("Trinité-et-Tobago", "Trinidad and Tobago"), ("Tunisie", "Tunisia"), ("Turkménistan", "Turkmenistan"),
+    ("Turquie", "Turkey"), ("Ukraine", "Ukraine"), ("Uruguay", "Uruguay"), ("Venezuela", "Venezuela"), ("Viêt Nam", "Vietnam"), ("Yémen", "Yemen"), ("Zambie", "Zambia"),
+    ("Zimbabwe", "Zimbabwe"),
+]
+# Pays où l'on roule à gauche (le volant est à droite)
+LEFT_DRIVING = {"Afrique du Sud", "Australie", "Bahamas", "Bangladesh", "Barbade", "Bhoutan", "Botswana", "Brunei", "Chypre", "Eswatini", "Fidji", "Guyana", "Hong Kong", "Inde",
+                "Indonésie", "Irlande", "Jamaïque", "Japon", "Kenya", "Lesotho", "Macao", "Malaisie", "Malawi", "Maldives", "Malte", "Maurice", "Mozambique", "Namibie", "Népal",
+                "Nouvelle-Zélande", "Ouganda", "Pakistan", "Papouasie-Nouvelle-Guinée", "Royaume-Uni", "Seychelles", "Singapour", "Sri Lanka", "Suriname", "Tanzanie", "Thaïlande",
+                "Timor oriental", "Trinité-et-Tobago", "Zambie", "Zimbabwe"}
+_COUNTRY_ALIAS = {"usa": "États-Unis", "us": "États-Unis", "etats unis d amerique": "États-Unis", "united states of america": "États-Unis", "uk": "Royaume-Uni",
+                  "angleterre": "Royaume-Uni", "england": "Royaume-Uni", "great britain": "Royaume-Uni", "grande bretagne": "Royaume-Uni", "ecosse": "Royaume-Uni", "scotland": "Royaume-Uni",
+                  "czechia": "République tchèque", "tchequie": "République tchèque", "south korea": "Corée du Sud", "korea": "Corée du Sud", "coree": "Corée du Sud", "holland": "Pays-Bas",
+                  "hollande": "Pays-Bas", "the netherlands": "Pays-Bas", "vietnam": "Viêt Nam", "burma": "Birmanie", "myanmar": "Birmanie", "turkiye": "Turquie", "uae": "Émirats arabes unis",
+                  "cote d ivoire": "Côte d'Ivoire", "rdc": "République démocratique du Congo", "drc": "République démocratique du Congo", "russian federation": "Russie",
+                  "swaziland": "Eswatini", "macedonia": "Macédoine du Nord", "belarus": "Biélorussie", "bielorussie": "Biélorussie"}
+_COUNTRY_KEY = {}
+
+
+def country_fr(name):
+    """Nom français normalisé d'un pays donné en français ou en anglais (None si inconnu)."""
+    if not _COUNTRY_KEY:
+        for fr, en in COUNTRIES:
+            _COUNTRY_KEY[" ".join(name_tokens(fr))] = fr
+            _COUNTRY_KEY[" ".join(name_tokens(en))] = fr
+        for k, v in _COUNTRY_ALIAS.items():
+            _COUNTRY_KEY[k] = v
+    return _COUNTRY_KEY.get(" ".join(name_tokens(name)))
+
+
+# écriture → (nom affiché, pays ou zones où on la voit sur les panneaux)
+SCRIPTS = {
+    "CYRILLIC": ("cyrillique", ["Russie", "Ukraine", "Biélorussie", "Bulgarie", "Serbie", "Macédoine du Nord", "Kazakhstan", "Kirghizistan", "Mongolie", "Monténégro", "Tadjikistan"]),
+    "ARABIC": ("arabe", ["Maroc", "Algérie", "Tunisie", "Égypte", "Arabie saoudite", "Émirats arabes unis", "Jordanie", "Liban", "Irak", "Iran", "Pakistan", "Afghanistan"]),
+    "HEBREW": ("hébreu", ["Israël"]), "GREEK": ("grec", ["Grèce", "Chypre"]), "HANGUL": ("coréen (hangul)", ["Corée du Sud", "Corée du Nord"]),
+    "HIRAGANA": ("japonais", ["Japon"]), "KATAKANA": ("japonais", ["Japon"]), "CJK": ("caractères chinois", ["Chine", "Taïwan", "Hong Kong", "Macao", "Japon", "Singapour"]),
+    "THAI": ("thaï", ["Thaïlande"]), "LAO": ("lao", ["Laos"]), "KHMER": ("khmer", ["Cambodge"]), "MYANMAR": ("birman", ["Birmanie"]),
+    "DEVANAGARI": ("devanagari", ["Inde", "Népal"]), "BENGALI": ("bengali", ["Bangladesh", "Inde"]), "TAMIL": ("tamoul", ["Inde", "Sri Lanka", "Singapour", "Malaisie"]),
+    "TELUGU": ("télougou", ["Inde"]), "KANNADA": ("kannada", ["Inde"]), "MALAYALAM": ("malayalam", ["Inde"]), "GUJARATI": ("gujarati", ["Inde"]), "GURMUKHI": ("pendjabi", ["Inde"]),
+    "SINHALA": ("cinghalais", ["Sri Lanka"]), "GEORGIAN": ("géorgien", ["Géorgie"]), "ARMENIAN": ("arménien", ["Arménie"]), "ETHIOPIC": ("guèze (amharique)", ["Éthiopie", "Érythrée"]),
+    "TIBETAN": ("tibétain", ["Chine", "Bhoutan"]), "MONGOLIAN": ("mongol traditionnel", ["Chine", "Mongolie"]), "THAANA": ("thaana", ["Maldives"]),
+}
+# lettres propres à une langue : (lettres, langue, pays)
+LETTER_HINTS = [
+    ("ß", "allemand", ["Allemagne", "Autriche"]), ("ñ", "espagnol", ["Espagne", "Mexique", "Argentine", "Colombie", "Chili", "Pérou"]),
+    ("ãõ", "portugais", ["Portugal", "Brésil"]), ("øæ", "danois ou norvégien", ["Danemark", "Norvège"]), ("ðþ", "islandais", ["Islande"]),
+    ("łąęśźżćń", "polonais", ["Pologne"]), ("őű", "hongrois", ["Hongrie"]), ("řěů", "tchèque", ["République tchèque"]), ("ľĺŕ", "slovaque", ["Slovaquie"]),
+    ("șță", "roumain", ["Roumanie", "Moldavie"]), ("ğış", "turc", ["Turquie"]), ("ċġħ", "maltais", ["Malte"]), ("āēīķļņģ", "letton", ["Lettonie"]),
+    ("ėįų", "lituanien", ["Lituanie"]), ("äöü", "allemand, suédois, finnois, estonien ou turc", ["Allemagne", "Autriche", "Suisse", "Suède", "Finlande", "Estonie", "Turquie"]), ("ơư", "vietnamien", ["Viêt Nam"]), ("čšž", "langue slave ou balte écrite en alphabet latin", ["République tchèque", "Slovaquie", "Slovénie", "Croatie", "Serbie", "Lituanie", "Lettonie"]),
+    ("đ", "serbo-croate ou vietnamien", ["Croatie", "Serbie", "Bosnie-Herzégovine", "Viêt Nam"]), ("å", "suédois, norvégien ou danois", ["Suède", "Norvège", "Danemark", "Finlande"]),
+    ("ëï", "néerlandais, français ou albanais", ["Pays-Bas", "Belgique", "France", "Albanie"]), ("œ", "français", ["France", "Belgique", "Suisse", "Canada"]),
+    ("їєґ", "ukrainien", ["Ukraine"]), ("ў", "biélorusse", ["Biélorussie"]), ("ђћџљњ", "serbe", ["Serbie", "Monténégro", "Bosnie-Herzégovine"]), ("ѓќѕ", "macédonien", ["Macédoine du Nord"]),
+    ("әғқңөұүһ", "kazakh", ["Kazakhstan"]), ("ҥөү", "kirghiz ou mongol", ["Kirghizistan", "Mongolie"]), ("ъ", "bulgare ou russe", ["Bulgarie", "Russie"]), ("ыэё", "russe ou biélorusse", ["Russie", "Biélorussie"]),
+    ("پچژگ", "persan ou ourdou", ["Iran", "Afghanistan", "Pakistan"]), ("ٹڈڑے", "ourdou", ["Pakistan"]),
+]
+
+
+def text_clues(text):
+    """Indices de pays tirés d'un texte lu sur une photo (panneau, enseigne, plaque) : écriture utilisée et lettres propres à une langue.
+    Renvoie [{"indice", "pays": [...], "force": "forte" | "moyenne"}], les plus précis d'abord. Aucun modèle : c'est déterministe."""
+    import unicodedata as ud
+    t = str(text or "")
+    seen = Counter()
+    for ch in t:
+        if not ch.isalpha():
+            continue
+        try:
+            nm = ud.name(ch)
+        except ValueError:
+            continue
+        first = nm.split(" ")[0]
+        if first in SCRIPTS:
+            seen[first] += 1
+    out, done = [], set()
+    low = t.lower()
+    for letters, lang, pays in LETTER_HINTS:
+        hits = sorted({c for c in low if c in letters})
+        if hits and lang not in done:
+            done.add(lang)
+            out.append({"indice": f"lettre(s) « {' '.join(hits)} » : {lang}", "pays": pays, "force": "forte" if len(pays) <= 2 else "moyenne", "n": len(hits)})
+    names = set()
+    for k, n in seen.most_common():
+        nom, pays = SCRIPTS[k]
+        if nom in names:
+            continue
+        names.add(nom)
+        out.append({"indice": f"écriture {nom} ({n} lettre(s))", "pays": pays, "force": "forte" if len(pays) <= 2 else "moyenne", "n": 0})
+    out.sort(key=lambda c: (c["force"] != "forte", len(c["pays"]), -c["n"]))
+    for c in out:
+        c.pop("n", None)
+    return out
+
+
+ENTITY_KEYS = ("personnes", "organisations", "lieux", "dates", "pseudos", "emails", "telephones")
+
+
+def normalize_entities(j):
+    """Met en forme la réponse d'une IA d'extraction : {catégorie: [textes]} avec des listes propres, sans doublon, sans valeurs vides ni démesurées."""
+    out = {k: [] for k in ENTITY_KEYS}
+    if not isinstance(j, dict):
+        return out
+    for k in ENTITY_KEYS:
+        v = j.get(k) or j.get(k.rstrip("s")) or []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, list):
+            continue
+        seen = set()
+        for x in v:
+            if isinstance(x, dict):
+                x = x.get("nom") or x.get("name") or x.get("valeur") or x.get("value") or ""
+            x = re.sub(r"\s+", " ", str(x)).strip(" \t\n\"'«»")
+            key = " ".join(name_tokens(x))
+            if 2 <= len(x) <= 120 and key and key not in seen:
+                seen.add(key)
+                out[k].append(x)
+    return out
+
+
+def ground_entities(ents, text):
+    """Ne garde que les entités qui figurent VRAIMENT dans le texte source. Une IA invente parfois un nom plausible : il est écarté ici.
+    Renvoie (gardées {catégorie: [..]}, écartées [(catégorie, valeur)])."""
+    hay = " " + " ".join(name_tokens(text)) + " "
+    raw = re.sub(r"\s+", " ", str(text or "")).lower()
+    kept, dropped = {k: [] for k in ents}, []
+    for k, vals in ents.items():
+        for v in vals:
+            key = " ".join(name_tokens(v))
+            if (key and f" {key} " in hay) or re.search(r"(?<![a-z0-9])" + re.escape(v.lower()) + r"(?![a-z0-9])", raw):
+                kept[k].append(v)
+            else:
+                dropped.append((k, v))
+    return kept, dropped
+
+
+def normalize_clues(j):
+    """Met en forme la fiche d'indices rendue par une IA de vision. Les pays sont ramenés à leur nom français ; ceux qui sont inconnus sont écartés.
+    Renvoie {textes, conduite, indices: {plaque, marquage, vegetation, architecture, autres}, pays: [{pays, confiance, raisons}]}."""
+    j = j if isinstance(j, dict) else {}
+    txt = j.get("textes") or j.get("texte") or []
+    txt = [txt] if isinstance(txt, str) else txt if isinstance(txt, list) else []
+    textes = [re.sub(r"\s+", " ", str(t.get("texte") if isinstance(t, dict) else t)).strip() for t in txt]
+    textes = [t for t in dict.fromkeys(textes) if t and t.lower() not in ("none", "null", "aucun")][:20]
+    c = str(j.get("conduite") or "").lower()
+    conduite = "gauche" if "gauche" in c or "left" in c else "droite" if "droite" in c or "right" in c else "inconnue"
+    indices = {k: re.sub(r"\s+", " ", str(j.get(k) or "")).strip()[:300] for k in ("plaque", "marquage", "vegetation", "architecture", "autres")}
+    pays, seen = [], set()
+    cand = j.get("pays") or j.get("pays_candidats") or []
+    for p in cand if isinstance(cand, list) else []:
+        if isinstance(p, str):
+            p = {"pays": p}
+        if not isinstance(p, dict):
+            continue
+        fr = country_fr(p.get("pays") or p.get("nom") or "")
+        if not fr or fr in seen:
+            continue
+        seen.add(fr)
+        try:
+            conf = max(0, min(100, int(float(p.get("confiance", 0)))))
+        except (TypeError, ValueError):
+            conf = 0
+        r = p.get("raisons") or p.get("raison") or []
+        r = [r] if isinstance(r, str) else r if isinstance(r, list) else []
+        pays.append({"pays": fr, "confiance": conf, "raisons": [str(x)[:160] for x in r][:5]})
+    pays.sort(key=lambda p: -p["confiance"])
+    return {"textes": textes, "conduite": conduite, "indices": indices, "pays": pays[:8]}
+
+
+def country_votes(sources, conduite="inconnue"):
+    """Recoupe les pays proposés par plusieurs sources indépendantes. sources : {nom de la source: [pays, du plus au moins probable]}.
+    Un pays compte pour une source s'il est dans ses 3 premiers. Renvoie [{pays, sources, rang, coherent}] les mieux recoupés d'abord.
+    coherent = False quand le sens de circulation observé contredit le pays."""
+    votes = {}
+    for src, lst in sources.items():
+        for rank, p in enumerate(lst[:3]):
+            fr = country_fr(p) or p
+            v = votes.setdefault(fr, {"pays": fr, "sources": [], "rang": 0})
+            if src not in v["sources"]:
+                v["sources"].append(src)
+                v["rang"] += rank
+    out = []
+    for v in votes.values():
+        left = v["pays"] in LEFT_DRIVING
+        v["coherent"] = conduite == "inconnue" or (conduite == "gauche") == left
+        out.append(v)
+    out.sort(key=lambda v: (not v["coherent"], -len(v["sources"]), v["rang"]))
+    return out
+
+
+def dossier_brief(g, limit=150):
+    """Résumé texte d'un dossier pour une IA d'analyse : une ligne par élément (type, nom, niveau, source) puis les liens.
+    Le niveau de fiabilité est toujours donné, pour que l'IA ne présente pas une estimation comme un fait."""
+    nodes = {k: n for k, n in (g.get("nodes") or {}).items() if n.get("type") != "enquete" and (n.get("data") or {}).get("_statut") != "faux"}
+    lines = []
+    for k, n in list(nodes.items())[:limit]:
+        d = n.get("data") or {}
+        lv = d.get("_fiab") or "?"
+        extra = "; ".join(f"{a}={str(b)[:60]}" for a, b in d.items() if not a.startswith("_") and a not in ("source", "fiabilité", "vérifié le", "url", "note") and b not in (None, ""))[:160]
+        lines.append(f"[{lv}] {n.get('type')} | {n.get('label')}" + (f" | {extra}" if extra else "") + (f" | source: {str(d.get('source'))[:80]}" if d.get("source") else ""))
+    links = []
+    for e in (g.get("edges") or []):
+        a, b = nodes.get(e.get("from")), nodes.get(e.get("to"))
+        if a and b and len(links) < limit:
+            links.append(f"{a.get('label')} -> {b.get('label')}" + (f" ({e.get('label')})" if e.get("label") else ""))
+    return "ÉLÉMENTS (niveau A = vérifié à la source, B = existe mais lien non prouvé, C = estimation, ? = non évalué)\n" + "\n".join(lines) + \
+           ("\n\nLIENS\n" + "\n".join(links) if links else ""), len(nodes)
+
+
+def rank_labels(labels, probs, k=5):
+    """Classe des étiquettes par probabilité. Renvoie ([(étiquette, proba)], verdict) ; le verdict dit si le premier se détache nettement."""
+    pairs = sorted(zip(labels, (float(p) for p in probs)), key=lambda x: -x[1])[:k]
+    if not pairs:
+        return [], "aucune réponse"
+    top, second = pairs[0][1], pairs[1][1] if len(pairs) > 1 else 0.0
+    verdict = "net" if top >= 0.5 and top >= 2 * second else "partagé" if top >= 0.25 else "indécis"
+    return pairs, verdict
