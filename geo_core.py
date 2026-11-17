@@ -764,7 +764,7 @@ def person_score(profile, first, last, city=""):
 
 # ============================================================ MISE À JOUR DEPUIS LE DÉPÔT (comparaison fichier par fichier)
 # Jamais écrasés ni supprimés par une mise à jour : les données de l'utilisateur
-UPDATE_PROTECTED_DIRS = ("resultats", "cache", "cours", "projets", "lang", "sauvegarde_maj", "CatExe-OSINT", "build", "dist", ".git", "__pycache__")
+UPDATE_PROTECTED_DIRS = ("resultats", "cache", "cours", "projets", "lang", "sauvegarde_maj", "outils_externes", "CatExe-OSINT", "build", "dist", ".git", "__pycache__")
 UPDATE_PROTECTED_FILES = ("config.json", "historique_noms.json", "progression.json", "progression_cours.json", "marques.txt", "h8mail_config.ini")
 
 
@@ -976,6 +976,8 @@ EXT = {
                "titre": "h8mail · email → fuites de données", "besoin": "une adresse email ; des clés d'API pour aller plus loin (facultatif)"},
     "gitfive": {"pip": "gitfive", "mod": "gitfive", "run": ("-c", "import sys; sys.argv[0] = 'gitfive'; from gitfive.gitfive import main; main()"),
                 "titre": "GitFive · compte GitHub → emails, noms, pseudos liés", "besoin": "une connexion à un compte GitHub (une seule fois)"},
+    "phunter": {"pip": None, "mod": "httpx", "run": ("phunter.py",),
+                "titre": "Phunter · numéro → opérateur, pays, type de ligne, réputation", "besoin": "un numéro de téléphone ; rien d'autre (installation vérifiée fichier par fichier)"},
     "toutatis": {"pip": "toutatis", "mod": "toutatis", "run": ("-c", "import sys; sys.argv[0] = 'toutatis'; from toutatis.core import main; main()"),
                  "titre": "Toutatis · compte Instagram → email et téléphone masqués", "besoin": "l'identifiant de session de TON compte Instagram"},
 }
@@ -1249,3 +1251,56 @@ def rank_labels(labels, probs, k=5):
     top, second = pairs[0][1], pairs[1][1] if len(pairs) > 1 else 0.0
     verdict = "net" if top >= 0.5 and top >= 2 * second else "partagé" if top >= 0.25 else "indécis"
     return pairs, verdict
+
+
+# ============================================================ PHUNTER (N0rz3/Phunter, GPL-3.0) : téléchargé tel quel, jamais copié ici
+# Les fichiers sont pris à un commit précis et vérifiés un par un par leur empreinte Git : seul le code relu est exécuté.
+PHUNTER_SHA = "bedff7bfbaecc7d790d6a30f9823d5eae6e3d547"
+PHUNTER_RAW = "https://raw.githubusercontent.com/N0rz3/Phunter/" + PHUNTER_SHA + "/"
+PHUNTER_FILES = {
+    "LICENSE": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7", "config.json": "210e45a49988744727046ac6e391d55cda045b61",
+    "lib/Requests.py": "80deb1c4d221ebc35629107d78c9c9ea52e45b02", "lib/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "lib/account.py": "fe0baa6a72e1b1648bf5bc0abaa0bca8ceeca000", "lib/annuaire.py": "e0e1af6a8be6a8f787bc3fe43161435f4d58f4c7",
+    "lib/beautiful.py": "ee397596fe414336b1f3e4361899bb40280c6586", "lib/cli.py": "ca2fbd03277f1133312fa759cd62c8d490610c1e",
+    "lib/country.json": "4ea64aeffc9388d59e1c0094ac4fbb829a139c5b", "lib/free_lookup.py": "1bc8e821ca6072e454628cf9e31261c8521b92a7",
+    "lib/lookup.py": "8ab7da3ef1ecc55d58d9145925e53eb5f6efc1e9", "lib/reputation.py": "92959a352627794d13c30ecf8cacd4c99bb56a0d",
+    "lib/spam.py": "5d62b398e05a894f423b35b2289a2287a55d8161", "lib/text.py": "d5258b75f4e1cfb2fac094db413a92c1eb99749a",
+    "lib/verify.py": "ee038462620302640a236ace2dd6d5837d4daec5", "phunter.py": "5a64bab16913c92f7f71a3339430fab196140315",
+    "useragents.txt": "93bcfcbb2caffa7d263f00a2a729fd798bfa7f04",
+}
+PHUNTER_DEPS = ["httpx", "beautifulsoup4", "selenium", "webdriver-manager", "phonenumbers"]
+
+
+def phunter_check(read_local):
+    """Contrôle les fichiers de Phunter déjà installés. read_local(chemin) → octets ou None. Renvoie la liste des fichiers absents ou différents du code relu."""
+    return [p for p, sha in PHUNTER_FILES.items() if (lambda d: d is None or git_blob_sha(d) != sha)(read_local(p))]
+
+
+def phunter_notes(output, info=None):
+    """Lecture critique de la sortie de Phunter -t. info = faits calculés par l'outil lui-même {pays, region, operateur, type}.
+    Phunter lit le pays dans l'indicatif seul et prend n'importe quelle page « 200 » pour un signalement : ces points sont expliqués ici.
+    Renvoie [(niveau « info » ou « attention », texte)]."""
+    t = strip_ansi(output)
+    notes = []
+    m = re.search(r"Possible location:\s*(.+)", t)
+    if m:
+        pays = [p.strip() for p in m.group(1).split(",") if p.strip()]
+        if len(pays) > 1:
+            notes.append(("attention", f"« Possible location » liste les {len(pays)} pays qui partagent cet indicatif : ce n'est pas un lieu."
+                          + (f" D'après la numérotation, ce numéro est rattaché à : {info['pays']}" + (f" ({info['region']})" if info.get("region") else "") + "." if info and info.get("pays") else "")))
+        elif pays and info and info.get("pays") and country_fr(pays[0]) and country_fr(info["pays"]) and country_fr(pays[0]) != country_fr(info["pays"]):
+            notes.append(("attention", f"Phunter dit « {pays[0]} » mais la numérotation indique {info['pays']}."))
+    if re.search(r"└──\s*!?\s*Spammer", t) and not re.search(r"Not spammer", t):
+        notes.append(("attention", "« Spammer » veut seulement dire que spamcalls.net a une page pour ce numéro : Phunter ne lit pas son contenu. Ouvre la page pour voir le nombre de signalements avant de conclure."))
+    if re.search(r"Not spammer", t):
+        notes.append(("info", "« Not spammer » : aucune page pour ce numéro sur spamcalls.net. Cela ne prouve pas que le numéro est propre."))
+    if "Traceback" in t or re.search(r"\b(AttributeError|KeyError|IndexError|httpx\.\w+)\b", t):
+        notes.append(("attention", "Phunter s'est arrêté sur une erreur : un des sites qu'il lit a changé ou n'a pas répondu. Les lignes après l'erreur manquent."))
+    if info and info.get("operateur") and re.search(r"Not Operator", t):
+        notes.append(("info", f"Phunter ne trouve pas l'opérateur ; la numérotation donne : {info['operateur']} (opérateur d'origine : le numéro a pu être porté ailleurs)."))
+    m = re.search(r"Line type:\s*(\w+)", t)
+    if m and info and info.get("type") and info["type"] != "inconnu" and m.group(1).lower() not in info["type"].lower():
+        notes.append(("attention", f"Phunter dit « {m.group(1)} » mais la numérotation indique : {info['type']}."))
+    if re.search(r"Reputation:", t):
+        notes.append(("info", "« Reputation » est le premier titre de la page tellows.fr, recopié tel quel : c'est l'avis d'un site d'avis, pas une vérification."))
+    return notes

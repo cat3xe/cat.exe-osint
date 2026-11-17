@@ -60,7 +60,7 @@ Elle ne s'applique pas au `.exe` (il faut retélécharger le `.exe`) ni à un do
 | `geo_core.py` | Calculs purs : géodésie, soleil, coordonnées, ligne de vue, relèvement, DNS, recoupement, fiabilité |
 | `pages_html.py` | Modèles des pages web (cartes, graphe d'enquête) |
 | `textes.py` | Tutos des modules et cours |
-| `tests/` | 208 tests automatiques, réseau simulé |
+| `tests/` | 222 tests automatiques, réseau simulé |
 
 Les quatre fichiers `.py` doivent rester dans le même dossier.
 
@@ -97,13 +97,17 @@ Le module **IA spécialisées** regroupe cinq aides qui tournent sur le PC, sans
 Garde-fous : tout ce qu'une IA propose est classé comme estimation (niveau C). Un pays contredit par le sens de circulation observé est signalé. L'analyste reçoit le niveau de fiabilité de chaque élément et a pour consigne de ne rien présenter d'autre que les éléments A comme des faits.
 
 ## Outils externes
-Le module **Outils externes** lance trois outils reconnus sans quitter Cat.exe. Il les installe à la demande (`pip`), affiche leur sortie, l'enregistre dans `resultats/` et envoie ce qu'ils trouvent dans le graphe.
+Le module **Outils externes** lance quatre outils reconnus sans quitter Cat.exe. Il les installe à la demande (`pip`), affiche leur sortie, l'enregistre dans `resultats/` et envoie ce qu'ils trouvent dans le graphe.
 
 | Outil | Ce qu'il fait | Ce qu'il lui faut |
 |---|---|---|
 | [h8mail](https://github.com/khast3x/h8mail) | email → fuites de données | rien ; tes clés d'API dans `h8mail_config.ini` pour aller plus loin |
 | [GitFive](https://github.com/mxrch/GitFive) | compte GitHub → emails, noms, pseudos liés | une connexion à ton compte GitHub |
 | [Toutatis](https://github.com/megadose/toutatis) | compte Instagram → email et téléphone masqués | l'identifiant de session de ton compte Instagram |
+
+| [Phunter](https://github.com/N0rz3/Phunter) | numéro de téléphone → opérateur, pays, type de ligne, réputation | un numéro, rien d'autre |
+
+**À propos de Phunter.** Il est sous licence GPL-3.0, alors que ce dépôt est sous licence MIT : son code n'est donc jamais copié ici. L'outil le télécharge à la demande, à une version précise (commit `bedff7b`), dans `outils_externes/`, et vérifie chaque fichier par son empreinte Git. Un fichier qui diffère du code relu n'est ni installé ni lancé. Seule l'analyse d'un numéro (`-t`) est branchée. Les options `-p` (nom du propriétaire d'un numéro, via l'annuaire inversé des Pages Jaunes) et `-a` (test de compte Amazon par automatisation du navigateur) ne sont pas branchées : elles servent à identifier un particulier. La sortie de Phunter est commentée : sa ligne « Possible location » liste les pays qui partagent l'indicatif, et « Spammer » veut seulement dire qu'une page existe sur spamcalls.net.
 
 L'identifiant de session Instagram n'est ni enregistré ni écrit dans les résultats. Ces outils utilisent tes comptes : n'enquête que sur tes propres comptes ou dans un cadre autorisé. Ils ne sont pas disponibles dans le `.exe`.
 
