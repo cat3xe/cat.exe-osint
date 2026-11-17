@@ -9,7 +9,7 @@ import os, sys, re, io, json, ssl, socket, base64, time, math, datetime, webbrow
 import concurrent.futures as cf
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_core import (COUNTRIES, EDITORS, EXT, FIAB, LEFT_DRIVING, PERSON_VERDICT, PHUNTER_DEPS, PHUNTER_FILES, PHUNTER_RAW, PHUNTER_SHA, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, country_fr, country_votes, ctrl_name, dist_from_size, dns_agree, dossier_brief, echoes, evidence_entry, evidence_verify, ext_argv, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, ground_entities, haversine, height_from_shadow, host_key, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, normalize_clues, normalize_entities, person_score, person_usernames, photo_checks, phunter_check, phunter_notes, places_of, profile_match, rank_labels, redact, resect, sherlock_valid, sherlock_verdict, size_from_dist, strip_ansi, sun_pos, text_clues, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path)  # calculs purs, testés dans tests/
+from geo_core import (COUNTRIES, EDITORS, FIAB, LEFT_DRIVING, PERSON_VERDICT, SUN_RISE, WGS_A, WGS_B, WGS_F, _HEMI_PRE, _HEMI_SUF, _NUM, _norm_city, _norm_name, _profile_handles, _profile_text, _sph_bearing, _strip_acc, api_like, cardinal, city_match, control_names, coords_only, coords_valid, country_fr, country_votes, ctrl_name, dist_from_size, dns_agree, dossier_brief, echoes, evidence_entry, evidence_verify, extract_ips, find_dates, fmt_dist, focal_px, geodesic, geodesic_dest, git_blob_sha, ground_entities, haversine, height_from_shadow, host_key, html_text, ip_consensus, ip_summary, looks_blocked, los_compute, match_verdict, measure_range, merge_hits, name_match, name_tokens, normalize_clues, normalize_entities, parse_free_lookup, parse_ig_user, parse_spamcalls, parse_tellows, person_score, person_usernames, phone_reputation_notes, photo_checks, places_of, profile_match, rank_labels, redact, resect, sherlock_valid, sherlock_verdict, size_from_dist, strip_ansi, sun_pos, text_clues, timeline_events, to_geojson, to_kml, update_plan, update_protected, update_safe_path, yt_channel_id, yt_subscribers)  # calculs purs, testés dans tests/
 from pages_html import VANTAGE_TPL, LEAFLET_HEAD, QUICK_TPL, GRAPH_TPL  # données
 from textes import PY_LESSONS, PROJECT, TUTOS  # données
 
@@ -2380,9 +2380,41 @@ def mod_phone():
     q = " OR ".join(f'"{x}"' for x in dict.fromkeys([nat, nat.replace(" ", ""), intl, e164]))
     con.print(f"[{B}]Recherche web[/] https://www.google.com/search?q={requests.utils.quote(q)}\n[{B}]WhatsApp[/] https://wa.me/{digits}")
     add_report("Téléphone", intl, "\n".join(f"{k} : {re.sub(r'\[.*?\]', '', v)}" for k, v in rows))
+    if ask_yes("Vérifier la réputation du numéro en ligne (tellows, spamcalls, free-lookup) ?", True):
+        phone_reputation(e164, intl)
     if ask_yes("Ouvrir la recherche web du numéro ?"):
         webbrowser.open("https://www.google.com/search?q=" + requests.utils.quote(q))
     pause()
+
+
+def phone_reputation(e164, intl=""):
+    """Interroge trois sites publics sur le numéro, en parallèle, et présente ce qu'ils disent. Chaque source est un avis, pas une vérification."""
+    digits = e164.lstrip("+")
+    jobs = {
+        "tellows": lambda: parse_tellows(get(f"https://www.tellows.fr/num/%2B{digits}", 12).text),
+        "spamcalls": lambda: (lambda r: parse_spamcalls(r.status_code, r.text))(get(f"https://spamcalls.net/en/number/{e164}", 12)),
+        "free": lambda: parse_free_lookup(get(f"https://free-lookup.net/{digits}", 12).text),
+    }
+    rep_ = {}
+    with con.status(f"[{P}]Consultation de 3 sites publics…", spinner="dots12"):
+        with _TPE(3) as ex:
+            futs = {k: ex.submit(f) for k, f in jobs.items()}
+            for k, f in futs.items():
+                try:
+                    rep_[k] = f.result()
+                except Exception as e:
+                    rep_[k] = {"erreur": sl_err(e)}
+    tw, sc, fl = rep_["tellows"], rep_["spamcalls"], rep_["free"]
+    rows = [("tellows.fr", f"{tw['score']}/9" + (f" · {tw['titre']}" if tw.get("titre") else "") if isinstance(tw, dict) and "erreur" not in tw and tw.get("score") is not None
+             else (tw.get("erreur") if isinstance(tw, dict) and "erreur" in tw else "pas de note lisible")),
+            ("spamcalls.net", ("page existante" if sc.get("page") else "aucune page") if isinstance(sc, dict) and "erreur" not in sc else sc.get("erreur", "")),
+            ("free-lookup.net", (fl[:200] if fl else "résumé non lisible (site changé, ou pas de données)") if not (isinstance(fl, dict) and "erreur" in fl) else fl.get("erreur", ""))]
+    con.print(kv(rows, f"🛡 Réputation · {intl or e164}", G))
+    notes = phone_reputation_notes({"tellows": tw, "spamcalls": sc})
+    if notes:
+        con.print(Panel("\n".join(("[#e0a83a]⚠[/] " if lv == "attention" else "[#7aa2ff]ℹ[/] ") + escape(tx) for lv, tx in notes), title="Comment lire ce résultat", border_style="#00e5ff"))
+    con.print(f"[{M}]Pages à ouvrir pour juger toi-même : https://www.tellows.fr/num/%2B{digits} · https://spamcalls.net/en/number/{e164} · https://free-lookup.net/{digits}")
+    add_report("Réputation numéro", intl or e164, "\n".join(f"{k} : {v}" for k, v in rows) + ("\n" + "\n".join(tx for _, tx in notes) if notes else ""))
 
 
 # ============================================================ CARTES (commun à toutes les pages HTML)
@@ -6650,18 +6682,23 @@ def sl_youtube(u):
     if r.status_code == 404:
         return None
     h = r.text
-    cid = (re.search(r'"(?:channelId|externalId)":"(UC[\w-]{22})"', h) or [None, None])[1]
+    cid = yt_channel_id(h)
     if not cid:
+        m = re.search(r"youtube\.com/channel/(UC[\w-]{22})", h)
+        cid = m.group(1) if m else None
+    if not cid:
+        if "consent.youtube" in r.url or "consent.youtube" in h:
+            raise RuntimeError("YouTube demande d'accepter les cookies depuis cette connexion : réessaie plus tard")
         return None
-    subs = (re.search(r'"subscriberCountText":\{[^}]*?"simpleText":"([^"]+)"', h) or re.search(r'"content":"([\d,.\s  ]+[kKMm]?\s*(?:abonnés|subscribers))"', h) or [None, None])[1]
     vids = []
     try:
         feed = get(f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}", 10).text
         vids = [f"{d[:10]} · {t}" for t, d in re.findall(r"<entry>.*?<title>(.*?)</title>.*?<published>(.*?)</published>", feed, re.S)[:6]]
     except Exception:
         pass
-    return {"Nom": _meta(h, "og:title"), "ID de chaîne": cid, "Abonnés": subs, "Description": (_meta(h, "og:description") or "")[:300],
-            "Dernières vidéos": "\n".join(vids), "_url": f"https://www.youtube.com/channel/{cid}", "_img": _meta(h, "og:image")}
+    return {"Nom": _meta(h, "og:title"), "ID de chaîne": cid, "Abonnés": yt_subscribers(h),
+            "Description": (_meta(h, "og:description") or "")[:300], "Dernières vidéos": "\n".join(vids),
+            "_url": f"https://www.youtube.com/channel/{cid}", "_img": _meta(h, "og:image")}
 
 
 def sl_telegram(u):
@@ -6693,8 +6730,30 @@ def sl_tiktok(u):
             "_url": f"https://www.tiktok.com/@{u.lstrip('@')}", "_img": us.get("avatarLarger")}
 
 
+IG_SESSION = {"sid": None}  # identifiant de session saisi pour une recherche, jamais écrit sur disque
+
+
+def ig_session_lookup(u, sid):
+    """Fiche d'un compte Instagram avec la session de TON compte (accès plus complet). None si le compte n'existe pas."""
+    r = HTTP.get(f"https://i.instagram.com/api/v1/users/{u}/usernameinfo/", timeout=12, cookies={"sessionid": sid},
+                 headers={"User-Agent": "Instagram 219.0.0.12.117 Android", "X-IG-App-ID": "936619743392459"})
+    if r.status_code in (401, 403):
+        raise RuntimeError("session refusée : identifiant expiré ou compte bloqué temporairement")
+    if r.status_code == 404:
+        return None
+    if r.status_code == 429:
+        raise RuntimeError("Instagram limite les requêtes : réessaie dans quelques minutes")
+    if not r.ok:
+        raise RuntimeError(f"Instagram a répondu {r.status_code}")
+    return parse_ig_user(r.json())
+
+
 def sl_instagram(u):
     u = u.lstrip("@")
+    if IG_SESSION["sid"]:
+        d = ig_session_lookup(u, IG_SESSION["sid"])
+        if d:
+            return d
     try:
         r = get(f"https://www.instagram.com/api/v1/users/web_profile_info/?username={u}", 10, headers={"x-ig-app-id": "936619743392459"})
         us = r.json()["data"]["user"] if r.ok else None
@@ -6706,17 +6765,17 @@ def sl_instagram(u):
                     "_url": f"https://www.instagram.com/{u}", "_img": us.get("profile_pic_url_hd")}
     except Exception:
         pass
-    # plan B : la fiche de partage (celle que voient Google / Twitter)
+    # plan B : la fiche de partage (celle que voient Google / Twitter). Instagram change souvent le texte : on accepte les variantes.
     h = HTTP.get(f"https://www.instagram.com/{u}/", timeout=10, headers={"User-Agent": "Twitterbot/1.0"}).text
-    d = _meta(h, "og:description")
-    if d and "Followers" in d:
-        m = re.match(r"([\d.,KMk]+) Followers, ([\d.,KMk]+) Following, ([\d.,KMk]+) Posts", d)
+    d = _meta(h, "og:description") or ""
+    m = re.search(r"([\d.,]+[KMkm]?)\s*followers?,\s*([\d.,]+[KMkm]?)\s*following,\s*([\d.,]+[KMkm]?)\s*posts?", d, re.I)
+    if m or re.search(r"@" + re.escape(u) + r"\b", d + (_meta(h, "og:title") or ""), re.I):
         name = (_meta(h, "og:title") or "").split("(@")[0].strip()
-        return {"Nom": name or None, "Abonnés / abonnements": f"{m.group(1)} / {m.group(2)}" if m else None, "Posts": m.group(3) if m else None,
-                "Bio": (re.search(r'"description":"(.*?)"', h) or [None, None])[1], "_url": f"https://www.instagram.com/{u}", "_img": _meta(h, "og:image")}
-    if "Page Not Found" in h or "Page introuvable" in h:
+        return {"Nom": name or None, "Abonnés / abonnements": f"{m.group(1)} / {m.group(2)}" if m else None,
+                "Posts": m.group(3) if m else None, "_url": f"https://www.instagram.com/{u}", "_img": _meta(h, "og:image")}
+    if re.search(r"Page Not Found|Page introuvable|isn't available|n'est pas disponible", h, re.I):
         return None
-    raise RuntimeError("Instagram bloque les requêtes sans compte : vérifie à la main")
+    raise RuntimeError("Instagram bloque les requêtes sans compte : ajoute la session de ton compte dans la recherche de pseudo")
 
 
 def sl_chess(u):
@@ -7049,6 +7108,9 @@ def mod_wmn(u=None):
     u = u or ask_text("Pseudo").strip().lstrip("@")
     if not u:
         return
+    con.print(f"[{M}]Instagram donne plus de détails avec la session de TON compte (facultatif). Elle n'est ni enregistrée ni affichée. "
+              "Où la trouver : navigateur → instagram.com → F12 → Application → Cookies → sessionid.")
+    IG_SESSION["sid"] = ask_text("Identifiant de session Instagram (Entrée = sans)", password=True).strip() or None
     try:
         with Progress(TextColumn(f"[{G}]{escape(u)}"), BarColumn(complete_style="#00e5ff", finished_style="#b388ff"), TaskProgressColumn(),
                       TextColumn("{task.description}"), console=con, transient=True) as pr:
@@ -7057,6 +7119,22 @@ def mod_wmn(u=None):
     except Exception as e:
         log(str(e), R)
         return pause()
+    ig_sid = IG_SESSION["sid"]
+    IG_SESSION["sid"] = None
+    if ig_sid:
+        try:
+            with con.status(f"[{P}]Instagram (session)…", spinner="dots12"):
+                d = ig_session_lookup(u, ig_sid)
+            if d and d["_username"].lower() == u.lower():
+                if not any("instagram" in r["url"].lower() for r in rows):
+                    rows.append({"site": "Instagram", "cat": "social", "url": d["_url"], "engines": ["Instagram (session)"], "conf": "forte",
+                                 "echo": True, "technique": False})
+                con.print(kv([(k, v) for k, v in d.items() if not k.startswith("_") and v not in (None, "")], "📸 Instagram (compte confirmé avec ta session)", G))
+            elif not d:
+                log("Instagram : aucun compte à ce pseudo.", Y)
+        except Exception as e:
+            log(f"Instagram (session) : {sl_err(e)}", Y)
+        ig_sid = None
     forts = [r for r in rows if r["conf"] == "forte"]
     log(f"{len(rows)} compte(s) confirmé(s) sur {n_sites} vérifications · {len(forts)} en confiance forte.", G)
     if dropped:
@@ -7864,7 +7942,7 @@ def _safe(fn, *a):
 
 
 
-MOD_TYPE = {"IA spécialisée": None, "mod_aispec": None, "h8mail": "email", "GitFive": "compte", "Toutatis": "compte", "mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
+MOD_TYPE = {"IA spécialisée": None, "mod_aispec": None, "mod_ipbulk": None, "Mesure photo": None, "mod_timeline": None, "mod_exportgeo": None, "mod_evidence": None, "Même personne": None, "Cohérence photo": "image", "Ligne de vue": "lieu", "Relèvement": "lieu", "DNS recoupé": "domaine", "mod_fiab": None, "Réseaux sociaux": "compte", "WhatsMyName": "pseudo", "IP lookup": "ip", "Discord": "discord", "Recherche de personne": "personne",
             "Image → coordonnées": "image", "Pseudos": "pseudo", "Prevname": "pseudo", "Email": "email", "Téléphone": "telephone", "Domaine": "domaine",
             "Crypto": "crypto", "Géoloc": "image", "Métadonnées": "image", "Fuite de mot de passe": None}
 _G = {}
@@ -8958,249 +9036,12 @@ def mod_aispec():
         pause()
 
 
-# ------------------------------------------------------------ 🧰 OUTILS EXTERNES : h8mail, GitFive, Toutatis
-def ext_dir(tool):
-    """Dossier d'un outil téléchargé tel quel (pas disponible via pip). None pour un outil pip."""
-    return BASE / "outils_externes" / "Phunter" if tool == "phunter" else None
-
-
-def ext_read(tool):
-    d = ext_dir(tool)
-    return lambda p: (d / p).read_bytes() if (d / p).is_file() else None
-
-
-def ext_installed(tool):
-    if tool == "phunter":
-        if phunter_check(ext_read(tool)):
-            return False
-        try:
-            import importlib.util
-            return all(importlib.util.find_spec(m) is not None for m in ("httpx", "bs4", "selenium", "webdriver_manager", "phonenumbers"))
-        except Exception:
-            return False
-    try:
-        import importlib
-        import importlib.util
-        importlib.invalidate_caches()
-        return importlib.util.find_spec(EXT[tool]["mod"]) is not None
-    except Exception:
-        return False
-
-
-def phunter_install():
-    """Télécharge Phunter à un commit précis, vérifie chaque fichier par son empreinte, puis installe ses bibliothèques.
-    Si un seul fichier diffère du code relu, rien n'est installé."""
-    d = ext_dir("phunter")
-    if not ask_yes("Phunter (GPL-3.0, par N0rz3) va être téléchargé depuis GitHub à une version précise, vérifiée fichier par fichier, "
-                   "puis ses bibliothèques installées (≈ 1 min, une seule fois). Continuer ?", True):
-        return False
-    got = {}
-    try:
-        with con.status(f"[{P}]Téléchargement de Phunter…", spinner="dots12"):
-            for p, sha in PHUNTER_FILES.items():
-                r = get(PHUNTER_RAW + p, 30)
-                if r.status_code != 200:
-                    raise RuntimeError(f"{p} : le site a répondu {r.status_code}")
-                if git_blob_sha(r.content) != sha:
-                    raise RuntimeError(f"{p} ne correspond pas à la version relue : le dépôt a pu être modifié, installation refusée")
-                got[p] = r.content
-    except Exception as e:
-        log(f"Phunter non installé, rien n'a été écrit : {sl_err(e)}", R)
-        return False
-    for p, data in got.items():
-        (d / p).parent.mkdir(parents=True, exist_ok=True)
-        (d / p).write_bytes(data)
-    import subprocess as sp
-    with con.status(f"[{P}]Installation des bibliothèques…", spinner="dots12"):
-        r = sp.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check", *PHUNTER_DEPS], capture_output=True, text=True)
-    if r.returncode != 0 or not ext_installed("phunter"):
-        log("Installation des bibliothèques impossible. Dans un terminal : py -3.14 -m pip install " + " ".join(PHUNTER_DEPS), Y)
-        if r.stderr:
-            con.print(f"[{M}]{escape(r.stderr.strip().splitlines()[-1][:200])}")
-        return False
-    log("Phunter installé.", G)
-    return True
-
-
-def ext_install(tool):
-    """Propose d'installer l'outil avec pip. Renvoie True s'il est disponible à la fin."""
-    if ext_installed(tool):
-        return True
-    if getattr(sys, "frozen", False):
-        log("Ces outils ne peuvent pas s'installer dans le .exe : lance l'outil avec LANCER.bat pour les utiliser.", Y)
-        return False
-    if tool == "phunter":
-        return phunter_install()
-    if not ask_yes(f"{tool} n'est pas installé. L'installer maintenant ? (≈ 30 s, une seule fois)", True):
-        return False
-    import subprocess as sp
-    with con.status(f"[{P}]Installation de {tool}…", spinner="dots12"):
-        r = sp.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check", EXT[tool]["pip"]], capture_output=True, text=True)
-    if r.returncode != 0 or not ext_installed(tool):
-        log(f"Installation impossible. Dans un terminal : py -3.14 -m pip install {EXT[tool]['pip']}", Y)
-        if r.stderr:
-            con.print(f"[{M}]{escape(r.stderr.strip().splitlines()[-1][:200])}")
-        return False
-    log(f"{tool} installé.", G)
-    return True
-
-
-def ext_run(tool, args, interactive=False, secrets=(), python=None):
-    """Lance un outil externe. interactive=True : l'outil garde le clavier (connexion, questions).
-    Sinon sa sortie est affichée au fur et à mesure et renvoyée. Renvoie (code de retour, sortie sans couleurs ni secrets)."""
-    import subprocess as sp
-    argv = ext_argv(python or sys.executable, tool, args)
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
-    cwd = str(ext_dir(tool)) if ext_dir(tool) else None
-    if tool == "phunter" and phunter_check(ext_read(tool)):
-        raise RuntimeError("les fichiers de Phunter ont changé depuis l'installation : réinstalle-le (supprime le dossier outils_externes)")
-    if interactive:
-        try:
-            return sp.run(argv, env=env, cwd=cwd).returncode, ""
-        except KeyboardInterrupt:
-            return 130, ""
-    out = []
-    p = sp.Popen(argv, stdout=sp.PIPE, stderr=sp.STDOUT, stdin=sp.DEVNULL, env=env, cwd=cwd, text=True, encoding="utf-8", errors="replace")
-    try:
-        for line in p.stdout:
-            clean = redact(strip_ansi(line.rstrip("\n")), secrets)
-            out.append(clean)
-            con.print(escape(clean), highlight=False)
-        p.wait()
-    except KeyboardInterrupt:
-        p.terminate()
-        out.append("(arrêté par l'utilisateur)")
-    return p.returncode if p.returncode is not None else 130, "\n".join(out)
-
-
-def ext_save(tool, target, output):
-    """Enregistre la sortie d'un outil externe et l'envoie au rapport et au graphe."""
-    f = OUT / f"externe_{tool}_{re.sub(r'[^A-Za-z0-9._@-]', '_', target)[:40]}_{stamp()}.txt"
-    f.write_text(output, encoding="utf-8")
-    log(f"Sortie enregistrée : {f}", G)
-    add_report(tool, target, output[:6000])
-    return f
-
-
-def mod_exttools():
-    con.rule(f"[{G}]🧰 OUTILS EXTERNES · h8mail, GitFive, Toutatis, Phunter")
-    con.print(f"[{M}]Trois outils reconnus, lancés depuis ici : installation à la demande, sortie enregistrée, résultats envoyés au graphe. "
-              "Ils se connectent avec TES comptes ou TES clés : à n'utiliser que sur tes propres comptes ou dans un cadre autorisé.")
-    while True:
-        c = select("Quel outil ?", [{"label": "📧 " + EXT["h8mail"]["titre"], "value": "h8mail", "desc": EXT["h8mail"]["besoin"]},
-                                    {"label": "🐙 " + EXT["gitfive"]["titre"], "value": "gitfive", "desc": EXT["gitfive"]["besoin"]},
-                                    {"label": "📸 " + EXT["toutatis"]["titre"], "value": "toutatis", "desc": EXT["toutatis"]["besoin"]},
-                                    {"label": "📞 " + EXT["phunter"]["titre"], "value": "phunter", "desc": EXT["phunter"]["besoin"]},
-                                    {"label": "← Retour", "value": None}])
-        if c is None:
-            return
-        if not ext_install(c):
-            pause()
-            continue
-        if c == "h8mail":
-            em = ask_text("Email à vérifier").strip().lower()
-            if not re.fullmatch(r"[\w.+-]+@[\w-]+\.[\w.-]+", em):
-                log("Email invalide.", Y)
-                continue
-            cfgf = BASE / "h8mail_config.ini"
-            args = ["-t", em]
-            if cfgf.is_file():
-                args += ["-c", str(cfgf)]
-                log("Clés d'API lues dans h8mail_config.ini.", G)
-            else:
-                con.print(f"[{M}]Sans clés d'API, h8mail n'interroge que ses sources gratuites, souvent vides. Pour ajouter tes clés (HIBP, Snusbase, Leak-Lookup…), "
-                          f"crée le fichier {cfgf} sur le modèle donné dans la documentation de h8mail. Ce fichier n'est jamais touché par les mises à jour.")
-            code, out = ext_run("h8mail", args)
-            ext_save("h8mail", em, out)
-            if code != 0:
-                log(f"h8mail s'est arrêté avec une erreur (code {code}).", Y)
-        elif c == "gitfive":
-            a = select("GitFive", [{"label": "🔑 Se connecter à GitHub", "value": "login", "desc": "à faire une fois, avec ton compte"},
-                                   {"label": "👤 Enquêter sur un compte", "value": "user", "desc": "emails, noms, pseudos, clés SSH"},
-                                   {"label": "⚡ Emails d'un compte (rapide)", "value": "light"},
-                                   {"label": "📧 Retrouver le compte d'un email", "value": "email"}, {"label": "← Retour", "value": None}])
-            if a is None:
-                continue
-            if a == "login":
-                con.print(f"[{M}]GitFive va te demander tes identifiants GitHub. Ils sont gardés par GitFive sur ton PC, pas par cet outil.")
-                ext_run("gitfive", ["login"], interactive=True)
-            else:
-                v = ask_text("Adresse email" if a == "email" else "Pseudo GitHub").strip().lstrip("@")
-                if not v:
-                    continue
-                # GitFive garde le clavier (il redemande les identifiants si la session a expiré) ; ses résultats sont repris de son export JSON
-                jf = OUT / f"gitfive_{re.sub(r'[^A-Za-z0-9._@-]', '_', v)[:40]}_{stamp()}.json"
-                code, _ = ext_run("gitfive", [a, v] + (["--json", str(jf)] if a != "light" else []), interactive=True)
-                if jf.is_file():
-                    try:
-                        out = json.dumps(json.loads(jf.read_text(encoding="utf-8")), ensure_ascii=False, indent=1)
-                    except Exception:
-                        out = jf.read_text(encoding="utf-8", errors="replace")
-                    ext_save("GitFive", v, out)
-                elif a == "light":
-                    con.print(f"[{M}]Mode rapide : les emails sont affichés ci-dessus (pas d'export). Utilise « Enquêter sur un compte » pour les garder dans le dossier.")
-                if code != 0:
-                    log("GitFive s'est arrêté avec une erreur. Si tu n'es pas connecté, choisis d'abord « Se connecter à GitHub ».", Y)
-        elif c == "phunter":
-            raw = ask_text("Numéro(s), séparés par une virgule ou un espace (10 au maximum)").strip()
-            nums = []
-            for tok in re.split(r"[,;\n]+", raw):
-                tok = tok.strip()
-                if not tok:
-                    continue
-                try:
-                    p = phonenumbers.parse(tok, "FR")
-                except Exception:
-                    log(f"« {tok} » n'est pas un numéro lisible.", Y)
-                    continue
-                if not phonenumbers.is_valid_number(p):
-                    log(f"« {tok} » n'est pas un numéro valide.", Y)
-                    continue
-                nums.append(phonenumbers.format_number(p, phonenumbers.PhoneNumberFormat.E164))
-            nums = list(dict.fromkeys(nums))[:10]
-            for k, num in enumerate(nums):
-                p = phonenumbers.parse(num)
-                info = {"pays": (pn_geo.country_name_for_number(p, "fr") or ""), "region": pn_geo.description_for_number(p, "fr") or "",
-                        "operateur": pn_carrier.name_for_number(p, "fr") or "", "type": PTYPE.get(phonenumbers.number_type(p), "inconnu")}
-                con.rule(f"[{G}]{num}")
-                con.print(f"[{M}]D'après la numérotation seule (calcul local) : {escape(info['pays'] or '?')}"
-                          + (f" · {escape(info['region'])}" if info["region"] and info["region"] != info["pays"] else "") + f" · {escape(info['type'])}"
-                          + (f" · opérateur d'origine {escape(info['operateur'])}" if info["operateur"] else ""))
-                try:
-                    code, out = ext_run("phunter", ["-t", num])
-                except RuntimeError as e:
-                    log(str(e), R)
-                    break
-                notes = phunter_notes(out, info)
-                if notes:
-                    con.print(Panel("\n".join(("[#e0a83a]⚠[/] " if lv == "attention" else "[#7aa2ff]ℹ[/] ") + escape(tx) for lv, tx in notes), title="Comment lire ce résultat", border_style="#00e5ff"))
-                con.print(f"[{M}]Pages à ouvrir pour juger toi-même : https://spamcalls.net/en/number/{num} · https://www.tellows.fr/num/{num.replace('+', '%2B')} · https://free-lookup.net/{num.lstrip('+')}")
-                ext_save("Phunter", num, out + "\n\n--- LECTURE ---\n" + "\n".join(f"[{lv}] {tx}" for lv, tx in notes))
-                if code != 0:
-                    log(f"Phunter s'est arrêté avec une erreur (code {code}).", Y)
-                if k < len(nums) - 1:
-                    time.sleep(2)  # ne pas marteler les sites qu'il interroge
-        elif c == "toutatis":
-            con.print(f"[{M}]Toutatis lit ce qu'Instagram montre à un compte connecté. Il lui faut l'identifiant de session (cookie « sessionid ») de TON compte : "
-                      "navigateur → instagram.com → F12 → Application → Cookies. Il n'est ni enregistré ni écrit dans les résultats. "
-                      "Une utilisation répétée peut faire bloquer ton compte par Instagram.")
-            u = ask_text("Pseudo Instagram").strip().lstrip("@")
-            sid = ask_text("Identifiant de session (sessionid)", password=True).strip()
-            if not (u and sid):
-                continue
-            code, out = ext_run("toutatis", ["-u", u, "-s", sid], secrets=[sid])
-            ext_save("Toutatis", u, out)
-            if code != 0:
-                log("Toutatis s'est arrêté avec une erreur (session expirée, ou compte bloqué temporairement).", Y)
-        pause()
-
-
 EXT_TOOLS = [
     ("Sherlock", "intégré : sa base de sites sert de second moteur dans « Pseudo sur 850+ sites »"),
     ("IPinfo CLI", "couvert : « IP lookup » interroge ipinfo.io, « IP en lot » traite une liste et résume par pays / opérateur"),
-    ("h8mail, GitFive, Toutatis, Phunter", "intégrés : module « Outils externes » (installation à la demande, sortie enregistrée, résultats dans le graphe). Phunter : seulement l'analyse d'un numéro, pas la recherche du propriétaire"),
-    ("DaProfiler · github.com/TheRealDalunacrobate/DaProfiler", "non intégré : il n'est plus maintenu et va chercher adresses postales et téléphones dans les annuaires. "
-                                                                "« Recherche de personne » couvre la partie profils publics"),
+    ("Toutatis, Phunter", "intégrés : Instagram (session optionnelle) dans « Pseudo sur 850+ sites », numéro dans « Recherche par numéro »"),
+    ("h8mail, GitFive", "non intégrés : h8mail demande des clés d'API payantes, GitFive demande une connexion GitHub ; « Email » et « Email → comptes » couvrent les sources gratuites"),
+    ("DaProfiler", "non intégré : il va chercher adresses et téléphones dans les annuaires (localiser un particulier)"),
 ]
 
 
@@ -10105,22 +9946,6 @@ Cinq aides spécialisées qui tournent **sur ton PC**. Rien n'est envoyé sur in
 - Un pays cité par **plusieurs sources indépendantes** est une piste sérieuse.
 - Les entités absentes du texte sont **écartées** : l'IA ne peut pas inventer un nom.
 - StreetCLIP est fait pour les photos de rue, pas pour un intérieur ou un portrait.""",
-"mod_exttools": """### 🎯 À quoi ça sert
-Lancer **h8mail**, **GitFive**, **Toutatis** et **Phunter** depuis Cat.exe, sans ligne de commande.
-### 🧰 Ce qu'il te faut
-- **h8mail** : une adresse email. Avec tes clés d'API dans `h8mail_config.ini`, il interroge bien plus de sources.
-- **GitFive** : un compte GitHub pour te connecter (une seule fois).
-- **Toutatis** : l'identifiant de session de **ton** compte Instagram.
-- **Phunter** : un numéro de téléphone, rien d'autre.
-### ▶ Étapes
-1. Choisis l'outil : il s'installe tout seul la première fois.
-2. Donne la cible. La sortie s'affiche en direct.
-3. Elle est enregistrée dans `resultats/`, et les emails ou liens trouvés vont dans le graphe.
-### 🔎 Comment lire
-- Ces outils utilisent **tes** comptes : n'enquête que sur tes propres comptes ou dans un cadre autorisé.
-- L'identifiant de session Instagram n'est ni enregistré ni écrit dans les résultats.
-- Trop de requêtes peuvent faire bloquer ton compte par GitHub ou Instagram.
-- **Phunter** : le pays et l'opérateur viennent de la numérotation. Sa ligne « Possible location » liste tous les pays qui partagent l'indicatif, et « Spammer » veut seulement dire qu'une page existe sur spamcalls.net : l'outil l'explique sous le résultat.""",
 "mod_fiab": """### 🎯 À quoi ça sert
 Faire le point sur ton dossier : ce qui est **prouvé**, ce qui **existe sans être relié**, ce qui n'est qu'une **piste**.
 ### 🔎 Comment lire
@@ -10139,11 +9964,10 @@ SECTIONS = [
         ("mod_user", "👤 Pseudos", "95 sites", "Teste un pseudo sur 95 sites (réseaux, jeux, dev, créa…) en parallèle, avec ses variantes (_ . -).\n\nTu donnes : un pseudo.\nTu obtiens : la liste des comptes trouvés, un niveau d'exposition et une checklist IA."),
         ("mod_prevname", "⏳ Prevname", "anciens pseudos", "Retrouve les anciens pseudos d'un compte : Steam, Roblox, Minecraft, X, GitHub, Bluesky (historique complet), Discord (ID), 36 sites qui redirigent les anciens noms et 57 plateformes dans les archives web."),
         ("mod_email", "📧 Email", "fuites · Gravatar", "Vérifie une adresse : fuites de données connues, avatar Gravatar, fournisseur, adresse jetable ou non, sécurité du domaine (SPF/DMARC)."),
-        ("mod_exttools", "🧰 Outils externes", "h8mail · GitFive · Toutatis · Phunter", "Lance quatre outils reconnus sans quitter Cat.exe : h8mail (email → fuites), GitFive (compte GitHub → emails, noms, pseudos liés), Toutatis (compte Instagram → email et téléphone masqués) et Phunter (numéro → opérateur, pays, type de ligne, réputation).\n\nL'outil les installe à la demande, enregistre leur sortie et envoie ce qu'ils trouvent dans le graphe. Ils utilisent tes propres comptes ou clés."),
         ("mod_holehe", "📬 Email → comptes", "Holehe · 120 sites", "Teste sur ~120 sites (Instagram, Spotify, Amazon, Discord…) si un compte existe avec un email, comme l'outil Holehe, sans prévenir la personne. + lien Epieos."),
         ("mod_breaches", "💧 Fuites d'un site", "Have I Been Pwned", "Un site ou un service a-t-il déjà été piraté ? Date de la fuite, nombre de comptes, données exposées (emails, mots de passe, adresses…), d'après la base publique Have I Been Pwned."),
         ("mod_pwned", "🔑 Fuite de mot de passe", "sans l'envoyer", "Vérifie si un mot de passe est dans les 900 millions de mots de passe fuités, sans jamais l'envoyer (seuls 5 caractères de son empreinte partent).\n\nDonne aussi sa force et le temps pour le casser."),
-        ("mod_phone", "📱 Téléphone", "pays · opérateur", "Analyse un numéro : pays, type (mobile/fixe), opérateur d'origine, fuseau horaire, liens de recherche."),
+        ("mod_phone", "📱 Recherche par numéro", "pays · opérateur", "Analyse un numéro : pays, type (mobile/fixe), opérateur d'origine, fuseau horaire, liens de recherche."),
         ("mod_bodacc", "📰 Annonces légales (BODACC)", "entreprises · dirigeants", "Créations, ventes, changements de dirigeant, redressements et liquidations d'entreprises françaises, depuis le bulletin officiel (BODACC)."),
         ("mod_iban", "🏦 IBAN", "clé · pays · banque", "Vérifie un IBAN avant un virement : clé de contrôle, pays, banque, guichet. Contre les faux RIB."),
         ("mod_vin", "🚗 Véhicule (VIN)", "constructeur · année · modèle", "Décode le numéro de série d'un véhicule : constructeur, pays, année, modèle, énergie. Pour vérifier une annonce d'occasion."),
@@ -10224,7 +10048,7 @@ SECTIONS = [
 ]
 
 
-KEYW = {"mod_aispec": "ia locale specialisee streetclip pays photo indices entites analyste dossier ollama vision langue ecriture", "mod_exttools": "h8mail gitfive toutatis phunter telephone numero externe instagram github fuites email outils", "mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
+KEYW = {"mod_aispec": "ia locale specialisee streetclip pays photo indices entites analyste dossier ollama vision langue ecriture", "mod_phone": "instagram github fuites email outils", "mod_ipbulk": "ip lot bulk liste journal logs ipinfo resume carte", "mod_photomesure": "mesure distance taille hauteur focale pixels photogrammetrie ombre", "mod_exportgeo": "kml geojson csv google earth qgis export lieux carte", "mod_timeline": "chronologie frise dates timeline", "mod_evidence": "preuve capture sha256 archive journal horodatage", "mod_sameperson": "meme personne recoupement profils identite preuve avatar", "mod_photocheck": "coherence photo date heure fuseau soleil verification fake", "mod_los": "ligne de vue relief altitude visible masque sommet", "mod_resect": "relevement triangulation azimut boussole position photographe", "mod_dnscheck": "dns doh cloudflare quad9 dnssec recoupe", "mod_fiab": "fiabilite bilan confiance dossier verifier", "mod_bodacc": "bodacc entreprise liquidation dirigeant societe annonce legale", "mod_iban": "iban rib banque virement", "mod_vin": "vin voiture vehicule plaque carte grise", "mod_mac": "mac fabricant appareil wifi box", "mod_wayurls": "wayback archive fichiers pdf urls cdx", "mod_revimg": "google lens tineye yandex reverse image inversee", "mod_webcams": "webcam camera windy live", "mod_holehe": "holehe email comptes inscrit", "mod_harvest": "theharvester sous-domaines emails hunter", "mod_urlscan": "urlscan capture phishing scan", "mod_autoscan": "spiderfoot auto scan automatique", "mod_prosrc": "censys hunter intelx dehashed epieos osint framework", "mod_anon": "tor anonyme ip vpn proxy navigateur changer ip", "mod_maplink": "google maps waze lien coordonnees gps", "mod_photobatch": "dossier exif trajet chronologie timeline", "mod_imgcompare": "hash similaire doublon retouche original", "mod_vidinfo": "youtube tiktok invid dataviewer date miniature", "mod_breaches": "hibp piratage fuite site", "mod_graph": "obsidian maltego toile liens enquete reseau", "mod_social": "sherlock maigret instagram tiktok reddit github profil", "mod_wmn": "whatsmyname sherlock pseudo username usersearch maigret", "mod_iplookup": "ip geoip vpn tor shodan",
         "mod_img2gps": "gps coordonnees image photo exif geoclip", "mod_person": "nom prenom email linkedin", "mod_discord": "invite serveur snowflake",
         "mod_toolbox": "stegano strings cidr timestamp offline", "mod_pwned": "password mdp pwned hibp", "mod_ids": "snowflake timestamp tiktok date", "mod_video": "film mp4 frames", "mod_geo": "geoint gps localisation",
         "mod_headers": "mail phishing spf dkim", "mod_decode": "base64 cyberchef ctf", "mod_hash": "md5 sha256 virus malware", "mod_net": "ip asn mac whois",
