@@ -30,7 +30,6 @@ NOUVEAU : TOUT DANS L'OUTIL (plus de programme à part)
 - Recherche par numéro : analyse + réputation (tellows.fr, spamcalls.net, free-lookup.net), avec la lecture des résultats.
 - Pseudo : session Instagram de TON compte en option (fiche plus complète). Elle n'est ni enregistrée ni affichée.
 - YouTube : lecture de la chaîne réparée.
-- Le menu « Outils externes » est retiré : tout est intégré dans les modules.
 
 NOUVEAU : IA LOCALES SPÉCIALISÉES OSINT / GEOINT
 ------------------------------------------------
@@ -44,18 +43,6 @@ Nouveau module « IA spécialisées » : cinq aides qui tournent sur ton PC, san
   n'est pas dans le texte est écartée.
 - Analyste du dossier : relit le graphe et rédige « établi / à prouver / incohérences / prochaines vérifications ».
 - Tout ce qu'une IA propose est une piste (niveau C). Il faut Ollama pour trois d'entre elles (Réglages → IA locale).
-
-NOUVEAU : OUTILS EXTERNES (h8mail, GitFive, Toutatis)
------------------------------------------------------
-- Nouveau module « Outils externes » : lance h8mail (email → fuites), GitFive (compte GitHub → emails, noms,
-  pseudos liés) et Toutatis (compte Instagram → email et téléphone masqués) sans ligne de commande.
-- L'outil les installe tout seul la première fois, affiche leur sortie, l'enregistre dans resultats et envoie
-  les emails et liens trouvés dans le graphe.
-- h8mail : mets tes clés d'API dans h8mail_config.ini (jamais touché par les mises à jour).
-- GitFive : choisis d'abord « Se connecter à GitHub ». Toutatis : il faut l'identifiant de session de TON compte ;
-  il n'est ni enregistré ni écrit dans les résultats.
-- Pas disponibles dans le .exe : lance l'outil avec LANCER.bat.
-- DaProfiler n'est pas intégré : il n'est plus maintenu et va chercher adresses et téléphones dans les annuaires.
 
 NOUVEAU : PSEUDOS À POINT, TIRET OU SOULIGNÉ
 --------------------------------------------
@@ -77,7 +64,7 @@ NOUVEAU : MOINS DE FAUX POSITIFS, IP EN LOT
 - IP en lot : donne un journal de connexions ou colle un texte, l'outil sort toutes les IP publiques,
   les recoupe sur 4 bases, résume par pays et opérateur, signale Tor / VPN / hébergeurs, exporte CSV + carte.
 - Sources pro : UserSearch, Web-Check, Exploit-DB (tape un numéro de faille, ex. CVE-2021-44228),
-  et la liste des outils à installer à part (h8mail, GitFive, Toutatis, DaProfiler) avec ce que chacun apporte.
+  et la liste des outils non intégrés (h8mail, GitFive, DaProfiler) avec la raison.
 - IP lookup : lien Exploit-DB pour chaque faille trouvée sur l'adresse.
 
 NOUVEAU : MISE À JOUR AUTOMATIQUE

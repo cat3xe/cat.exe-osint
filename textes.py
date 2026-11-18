@@ -667,6 +667,7 @@ Un **pseudo** + internet. Les deux bases se téléchargent toutes seules (et se 
 - **Résultats écartés** : le site répondait aussi « trouvé » à un pseudo inexistant. Ce sont des faux positifs évités.
 ### 💡 Astuces
 - Un pseudo avec un point, un tiret ou un souligné donne moins de résultats : beaucoup de sites n'acceptent pas ces signes.
+- **Session Instagram** (facultative) : fiche plus complète du compte. Elle n'est ni enregistrée ni affichée.
 - Teste aussi les **variantes** et l'ancien pseudo (module Prevname).
 - Les résultats vont aussi dans le **Graphe d'enquête** : tu vois les recoupements.""",
 
@@ -727,13 +728,16 @@ Tape le mot de passe (il ne s'affiche pas) → nombre de fuites + force estimée
 Trouvé dans une fuite = **à changer partout**. Utilise le générateur de la *Boîte à outils* et un gestionnaire (Bitwarden, gratuit).""",
 
 "mod_phone": """### 🎯 À quoi ça sert
-Analyser un numéro : **pays, type** (mobile, fixe, VoIP), opérateur d'origine, format, recherches prêtes.
+Analyser un **numéro** : pays, opérateur, type de ligne, puis sa **réputation** (tellows.fr, spamcalls.net, free-lookup.net).
 ### 🧰 Ce qu'il te faut
-Le numéro au format international de préférence : `+33 6 12 34 56 78`.
-### 💡 Astuces
-- Un numéro **VoIP** ou virtuel = souvent arnaque ou compte jetable.
-- L'opérateur affiché est celui d'**origine** (le numéro a pu être porté ailleurs).
-- Les recherches prêtes cherchent le numéro sur le web, WhatsApp, Telegram.""",
+Un numéro, avec ou sans +33.
+### ▶ Étapes
+1. Tape le numéro.
+2. Lis la fiche de numérotation (calcul local, sans envoi).
+3. Accepte la réputation : chaque site est interrogé une fois.
+### 🔎 Comment lire
+- La **réputation** est un avis d'utilisateurs, pas une vérification.
+- Un numéro « signalé » peut être légitime : vérifie avant de conclure.""",
 
 "mod_crypto": """### 🎯 À quoi ça sert
 Voir le **solde et les transactions** d'une adresse Bitcoin / Ethereum (données publiques de la blockchain).
