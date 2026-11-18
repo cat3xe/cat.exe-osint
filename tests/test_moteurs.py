@@ -220,6 +220,10 @@ class MoteurSherlock(unittest.TestCase):
         self.assertIsNotNone(O.sherlock_hit("Msg", s, "alice"))
         self.assertIsNone(O.sherlock_hit("Msg", s, "bob"))
 
+    def test_site_sans_adresse_de_profil_non_compte(self):
+        # Discord : la règle teste une API, son adresse est la page d'accueil : aucun lien de profil à donner
+        self.assertIsNone(O.sherlock_hit("Discord", {"errorType": "status_code", "url": "https://discord.com"}, "alice"))
+
     def test_pseudo_de_forme_impossible_sans_requete(self):
         def interdit(*a, **k):
             raise AssertionError("aucune requête ne doit partir")

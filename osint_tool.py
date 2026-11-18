@@ -7072,6 +7072,8 @@ def sherlock_hit(name, site, u):
     if not all_absent("sherlock:" + name, lambda c: _sherlock_raw(site, c)[0], u)[0]:
         _WMN_STATS["drop"] = _WMN_STATS.get("drop", 0) + 1
         return None
+    if "{}" not in site.get("url", ""):
+        return None  # pas d'adresse de profil : le site ne dit pas où est le compte, on ne le compte pas comme trouvé
     return {"url": site["url"].replace("{}", u), "echo": echo}
 
 
