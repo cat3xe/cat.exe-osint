@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STREET RIDE 3D</title>
+<link rel="stylesheet" href="/src/ui/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" class="hidden">
+  <div id="score-box"><div id="line-score">0</div><div id="combo"></div><div id="trick"></div></div>
+  <div id="total">Score : <b id="total-score">0</b> · Record : <b id="best">0</b></div>
+  <div id="info"><span id="vehicle">SKATEBOARD</span> · <span id="stance">Regular</span> · <span id="speed">0</span> km/h</div>
+  <div id="balance" class="hidden"><div id="balance-needle"></div></div>
+  <div id="notif"></div>
+  <div id="help-hint">Échap : menu · H : aide commandes</div>
+  <div id="help" class="hidden"></div>
+</div>
+<div id="menu" class="overlay"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
