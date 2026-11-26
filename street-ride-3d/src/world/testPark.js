@@ -1,38 +1,32 @@
 import * as THREE from 'three';
-import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { makeConcrete, makeAsphalt, makeWood, makeBrick, makeGraffiti, makeFacade } from './textures.js';
+import { makeGraffiti } from './textures.js';
+import { pbr, worldUV } from './materials.js';
+import { setupLighting } from './lighting.js';
 
 // Skatepark de test (Phase 1). Expose :
 //  colliders : meshes statiques utilisés pour le sol et les murs
 //  rails     : segments grindables { a, b, kind: 'rail' | 'ledge' }
 //  spawn     : point de départ
-export function buildTestPark(scene) {
+export function buildTestPark(scene, renderer) {
   const colliders = [], rails = [];
   const M = {
-    concrete: new THREE.MeshStandardMaterial({ map: makeConcrete(1), roughness: 0.85 }),
-    ground: new THREE.MeshStandardMaterial({ map: makeConcrete(40), roughness: 0.9 }),
-    asphalt: new THREE.MeshStandardMaterial({ map: makeAsphalt(30), roughness: 0.95 }),
-    wood: new THREE.MeshStandardMaterial({ map: makeWood(2), roughness: 0.7 }),
-    metal: new THREE.MeshStandardMaterial({ color: 0xc9ccd2, metalness: 0.9, roughness: 0.25 }),
-    paintedMetal: new THREE.MeshStandardMaterial({ color: 0xff5a4f, metalness: 0.4, roughness: 0.4 }),
-    brick: new THREE.MeshStandardMaterial({ map: makeBrick(4), roughness: 0.9 }),
+    concrete: pbr('ledge', { size: 2.5 }),
+    ground: pbr('ground', { size: 4 }),
+    asphalt: pbr('road', { size: 5 }),
+    wood: pbr('wood', { size: 2.4, color: 0xd8c2a0 }),
+    metal: new THREE.MeshStandardMaterial({ color: 0xc9ccd2, metalness: 1, roughness: 0.22 }),
+    paintedMetal: new THREE.MeshStandardMaterial({ color: 0xd8382e, metalness: 0.5, roughness: 0.35 }),
+    brick: pbr('brick', { size: 3 }),
     graffiti: new THREE.MeshStandardMaterial({ map: makeGraffiti(), roughness: 0.8 }),
-    grass: new THREE.MeshStandardMaterial({ color: 0x4f7a3a, roughness: 1 }),
+    grass: new THREE.MeshStandardMaterial({ color: 0x4a6e35, roughness: 1 }),
+    facade: pbr('facade', { size: 4 }),
+    painted: pbr('ledge', { size: 4, color: 0xd8d2c8 }),
   };
   const add = (mesh, collide = true) => { mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh); if (collide) colliders.push(mesh); return mesh; };
   const box = (w, h, d, x, y, z, mat, ry = 0) => { const m = add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)); m.position.set(x, y + h / 2, z); m.rotation.y = ry; return m; };
 
-  // Ciel, lumières, brouillard
-  const sky = new Sky(); sky.scale.setScalar(250); sky.material.fog = false; scene.add(sky);
-  scene.background = new THREE.Color(0xb8c6d8);
-  const sun = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(60), THREE.MathUtils.degToRad(200));
-  Object.assign(sky.material.uniforms, {}); sky.material.uniforms.sunPosition.value.copy(sun);
-  sky.material.uniforms.turbidity.value = 6; sky.material.uniforms.rayleigh.value = 1.6;
-  scene.add(new THREE.HemisphereLight(0xbfd8ff, 0x5a4a3a, 0.9));
-  const dir = new THREE.DirectionalLight(0xfff1dd, 2.6); dir.position.copy(sun).multiplyScalar(80); dir.castShadow = true;
-  Object.assign(dir.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 250 }); dir.shadow.bias = -0.0004; dir.shadow.normalBias = 0.03;
-  scene.add(dir, dir.target);
-  scene.fog = new THREE.Fog(0xb8c6d8, 60, 300);
+  // Ciel HDR, soleil, brouillard
+  const L = setupLighting(scene, renderer);
 
   // Sol : esplanade béton + route + herbe
   const ground = add(new THREE.Mesh(new THREE.PlaneGeometry(240, 240), M.ground)); ground.rotation.x = -Math.PI / 2;
@@ -113,9 +107,8 @@ export function buildTestPark(scene) {
     const l = add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.8, 1), leafM), false); l.position.set(x, 4, z);
   }
   // Immeubles en fond (silhouettes)
-  for (let i = 0; i < 10; i++) {
-    const h = 15 + Math.round(Math.random() * 6) * 5, t = makeFacade(); t.repeat.set(3, h / 8);
-    box(14, h, 14, -90 + i * 20, 0, -80 - Math.random() * 10, new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 }));
-  }
-  return { colliders, rails, spawn: new THREE.Vector3(0, 0, 6), sunLight: dir, sunDir: sun.clone(), sky };
+  for (let i = 0; i < 10; i++) { const h = 15 + Math.round(Math.random() * 6) * 5; box(14, h, 14, -90 + i * 20, 0, -80 - Math.random() * 10, i % 2 ? M.painted : M.brick); }
+  // UV en mètres pour toutes les surfaces texturées PBR
+  scene.traverse(o => { if (o.isMesh) worldUV(o); });
+  return { colliders, rails, spawn: new THREE.Vector3(0, 0, 6), sunLight: L.sun, sunDir: L.sunDir, ready: L.ready };
 }

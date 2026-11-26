@@ -44,6 +44,9 @@ Pousser, freiner, tourner · ollie, nollie, kickflip, heelflip, shove-it, pop sh
 - Le grind se déclenche sur rails/ledges marqués, pas sur n'importe quelle arête.
 - Pas de son, pas de trottinette (phase 3).
 
+## Graphismes (passe 1)
+Textures PBR réalistes CC0 (Poly Haven, voir public/assets/LICENSES.txt), éclairage par ciel HDR réel avec reflets, ombres douces, occlusion ambiante (GTAO), bloom, étalonnage couleur + vignette + grain, flou de vitesse, anticrénelage SMAA. Effets réglés par le préréglage de qualité (désactivés en Faible).
+
 ## Feuille de route
 1. ✅ Base · 2. ✅ Physique skate (à affiner : vert, reverts, grabs) · 3. Trottinette (physique/commandes/tricks séparés : tailwhip, barspin, bri flip) · 4. Monde ouvert en tuiles chargées progressivement · 5. Personnalisation (modèle glTF skinné + vêtements attachés aux os) · 6. Photo, replays (enregistrement d'états à 30 Hz), audio, météo, jour/nuit, PNJ · 7. Progression, économie, magasins · 8. Créateur de park, crews, S.K.A.T.E. · 9. Serveur Node.js autoritaire (WebSocket) · 10. Optimisation, build Windows (Electron).
 

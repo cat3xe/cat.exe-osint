@@ -6,6 +6,7 @@ import { buildTestPark } from './world/testPark.js';
 import { Player } from './player/player.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Menu } from './ui/menu.js';
+import { PostFX } from './world/postfx.js';
 import { settings, QUALITY, keyLabel } from './save/settings.js';
 
 // Point d'entrée : crée le moteur de rendu, le monde, le joueur et la boucle à pas fixe.
@@ -13,11 +14,12 @@ class Game {
   constructor() {
     const canvas = document.getElementById('game');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 0.9;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 500);
-    this.world = buildTestPark(this.scene);
+    this.world = buildTestPark(this.scene, this.renderer);
+    this.postfx = new PostFX(this.renderer, this.scene, this.camera);
     this.physics = new PhysicsWorld(this.world.colliders, this.world.rails);
     this.score = new ScoreSystem();
     this.hud = this.bindHud();
@@ -51,11 +53,11 @@ class Game {
     this.renderer.shadowMap.enabled = settings.shadows;
     const sl = this.world.sunLight; sl.castShadow = settings.shadows; sl.shadow.mapSize.set(q.shadowMap, q.shadowMap); sl.shadow.map?.dispose(); sl.shadow.map = null;
     this.camera.far = settings.viewDist + 50; this.scene.fog.far = settings.viewDist; this.scene.fog.near = settings.viewDist * 0.25; this.camera.updateProjectionMatrix();
-    this.world.sky.scale.setScalar(settings.viewDist * 0.9);
+    this.postfx?.configure(q);
     this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
     this.resize();
   }
-  resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
+  resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.postfx?.setSize(innerWidth, innerHeight); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
   notify(txt, color = '#ff5a4f') { const n = this.hud.notif; n.textContent = txt; n.style.color = color; clearTimeout(this.nt); this.nt = setTimeout(() => n.textContent = '', 1600); }
   flashTrick() { this.hud.trick.style.transform = 'scale(1.15)'; setTimeout(() => this.hud.trick.style.transform = '', 120); }
   step(dt, now) {
@@ -99,8 +101,7 @@ class Game {
     }
     // l'ombre suit le joueur
     const sl = this.world.sunLight, f = this.player.focus; sl.target.position.copy(f); sl.position.copy(f).addScaledVector(this.world.sunDir, 80);
-    this.world.sky.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    this.postfx.render(frame, this.paused ? 0 : this.player.speed);
   }
 }
 new Game();

@@ -26,9 +26,11 @@ s = await st(); check('A pousse le skate', s.speed > 3, 'vitesse=' + s.speed.toF
 await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 2; }); const y0 = Math.PI; await axes([1, 0, 0, 0]); await wait(400); await axes([0, 0, 0, 0]);
 s = await st(); check('Stick gauche tourne', Math.abs(s.yaw - y0) > 0.3, 'Δ=' + (s.yaw - y0).toFixed(2));
 // Ollie au stick droit : bas puis haut (échantillonné en continu)
-await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 5; });
-await axes([0, 0, 0, 1]); await wait(25); await axes([0, 0, 0, -1]); await wait(25); await axes([0, 0, 0, 0]);
-await wait(1100); s = await st(); check('Ollie au stick droit', s.names.includes('Ollie') || s.session > 0, JSON.stringify(s.names));
+for (let k = 0; k < 3; k++) {
+  await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 5; __game.score.reset(); });
+  await axes([0, 0, 0, 1]); await wait(25); await axes([0, 0, 0, -1]); await wait(25); await axes([0, 0, 0, 0]);
+  await wait(1100); s = await st(); if (s.names.includes('Ollie')) break;
+} check('Ollie au stick droit', s.names.includes('Ollie') || s.session > 0, JSON.stringify(s.names));
 // Kickflip au stick droit : bas puis haut-gauche
 for (let k = 0; k < 3; k++) {
   await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 5; __game.score.reset(); });

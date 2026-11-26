@@ -1,0 +1,3 @@
+Textures et HDRI : Poly Haven (https://polyhaven.com) — licence CC0 (domaine public).
+concrete_floor_worn_001, asphalt_02, brick_wall_001, concrete_wall_008, plywood, concrete_tile_facade, metal_plate, painted_concrete
+HDRI : kloofendal_48d_partly_cloudy_puresky

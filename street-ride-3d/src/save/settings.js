@@ -13,10 +13,10 @@ export const ACTION_LABELS = {
   reset: 'Réinitialiser le personnage', camera: 'Changer de caméra', run: 'Courir (à pied)', help: 'Afficher l’aide',
 };
 export const QUALITY = {
-  faible: { shadows: false, shadowMap: 512, pixelRatio: 0.7, viewDist: 120 },
-  moyen:  { shadows: true, shadowMap: 1024, pixelRatio: 0.9, viewDist: 200 },
-  eleve:  { shadows: true, shadowMap: 2048, pixelRatio: 1, viewDist: 300 },
-  ultra:  { shadows: true, shadowMap: 4096, pixelRatio: 2, viewDist: 450 },
+  faible: { shadows: false, shadowMap: 512, pixelRatio: 0.7, viewDist: 120, postfx: false, ao: false, bloom: false, smaa: false },
+  moyen:  { shadows: true, shadowMap: 1024, pixelRatio: 0.9, viewDist: 200, postfx: true, ao: false, bloom: true, smaa: true },
+  eleve:  { shadows: true, shadowMap: 2048, pixelRatio: 1, viewDist: 300, postfx: true, ao: true, bloom: true, smaa: true },
+  ultra:  { shadows: true, shadowMap: 4096, pixelRatio: 2, viewDist: 450, postfx: true, ao: true, bloom: true, smaa: true },
 };
 const DEFAULTS = { quality: 'eleve', resolutionScale: 1, viewDist: 300, shadows: true, mouseSens: 1, invertY: false, bindings: { ...DEFAULT_BINDINGS } };
 
