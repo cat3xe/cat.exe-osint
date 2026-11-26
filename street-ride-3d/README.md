@@ -5,7 +5,7 @@ Jeu 3D de skateboard et trottinette freestyle en monde ouvert. **État actuel : 
 ## Lancer
 - Windows : double-clic sur `LANCER_JEU.bat` (Node.js 18+ requis).
 - Sinon : `npm install` puis `npm run dev`, ouvrir http://localhost:5173
-- Tests : `npm test` (gestes Flick-It) · `npm run build && npx vite preview --port 4173` puis `node tests/e2e.mjs` (20 vérifications dans un vrai navigateur).
+- Tests : `npm test` (gestes Flick-It) · `npm run build && npx vite preview --port 4173` puis `node tests/e2e.mjs` (22 vérifications dans un vrai navigateur).
 
 ## Choix technologique
 | Option | Pour | Contre |

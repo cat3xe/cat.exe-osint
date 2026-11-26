@@ -20,17 +20,25 @@ for (let i = 0; i < 3; i++) { await page.keyboard.down('Space'); await wait(120)
 let s = await st(); check('Pousser fait avancer', s.speed > 4, `vitesse=${s.speed.toFixed(2)}`);
 // Ollie : flèche bas puis haut
 await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 5; }); await wait(100);
-await page.keyboard.down('ArrowDown'); await page.waitForTimeout(40); await page.keyboard.up('ArrowDown'); await page.keyboard.down('ArrowUp'); await wait(30);
-s = await st(); await page.keyboard.up('ArrowUp');
+// 1) le clavier produit bien des échantillons horodatés (bas, centre, haut)
+await page.evaluate(() => { __game.paused = true; __game.input.flickQueue.length = 0; });
+await page.keyboard.down('ArrowDown'); await page.keyboard.up('ArrowDown'); await page.keyboard.down('ArrowUp'); await page.keyboard.up('ArrowUp');
+const q = await page.evaluate(() => __game.input.flickQueue.map(e => [e.x, e.y]));
+check('Clavier : flèches -> échantillons stick droit', JSON.stringify(q) === '[[0,-1],[0,0],[0,1],[0,0]]', JSON.stringify(q));
+await page.evaluate(() => { __game.input.flickQueue.length = 0; __game.paused = false; });
+// 2) geste injecté avec un rythme humain (60 ms entre échantillons)
+const flick = pts => page.evaluate(pts => { const t = performance.now(); __game.input.flickQueue.push(...pts.map(([x, y], i) => ({ x, y, t: t + i * 60 }))); }, pts);
+await flick([[0, -1], [0, 0], [0, 1], [0, 0]]); await wait(30);
+s = await st();
 check('Ollie : décollage', s.state === 'air', s.state);
-let maxY = 0; for (let i = 0; i < 20; i++) { await wait(50); const q = await st(); maxY = Math.max(maxY, q.y); }
+await page.evaluate(() => { window.__maxY = 0; const f = () => { __maxY = Math.max(__maxY, __game.player.board.pos.y); if (__game.player.board.state === 'air') requestAnimationFrame(f); }; requestAnimationFrame(f); });
+await wait(1000); const maxY = await page.evaluate(() => __maxY);
 s = await st(); check('Ollie : hauteur atteinte', maxY > 0.6, `y max=${maxY.toFixed(2)}`);
 check('Ollie : réception propre et comptée', s.state === 'ride' && (s.names.includes('Ollie') || s.session > 0), JSON.stringify(s.names));
 // Kickflip
 await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 5; });
 await wait(100);
-await page.keyboard.down('ArrowDown'); await page.waitForTimeout(40); await page.keyboard.down('ArrowLeft'); await page.keyboard.up('ArrowDown'); await page.keyboard.down('ArrowUp'); await page.waitForTimeout(40);
-await page.keyboard.up('ArrowUp'); await page.keyboard.up('ArrowLeft'); await wait(1200);
+await flick([[0, -1], [-0.7, 0.7], [0, 0]]); await wait(1200);
 s = await st(); check('Kickflip réussi', s.names.some(n => n.includes('Kickflip')) && s.state === 'ride', JSON.stringify(s.names) + ' ' + s.state);
 // Encaissement de la ligne
 await wait(1800); s = await st(); check('Ligne encaissée dans le score', s.session > 0, 'session=' + s.session);
@@ -50,6 +58,9 @@ await wait(1500); s = await st(); check('Collision mur (ne traverse pas)', s.z >
 await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(0, 0, -6), Math.PI); b.speed = 8; });
 let air = false; for (let i = 0; i < 30; i++) { await wait(50); if ((await st()).state === 'air') air = true; }
 check('Le kicker fait décoller', air);
+await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); b.speed = 4; }); await wait(100);
+await flick([[0, -1], [-1, 0], [0, 1], [0, 0]]); await wait(1200); s = await st();
+check('Pop shove-it réussi', s.names.some(n => n.includes('Pop Shove-it')) && s.state === 'ride', JSON.stringify(s.names));
 // Descendre du skate et marcher
 await page.evaluate(() => { const b = __game.player.board; b.reset(new b.pos.constructor(-20, 0, 30), Math.PI); });
 await page.keyboard.press('KeyE'); await wait(200); s = await st(); check('Descendre du skate (E)', s.mode === 'walk');

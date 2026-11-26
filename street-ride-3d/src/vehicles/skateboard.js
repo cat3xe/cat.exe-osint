@@ -31,7 +31,7 @@ export class Skateboard {
     // Échantillons clavier horodatés d'abord, puis la valeur analogique (souris / manette)
     for (const e of input.flickQueue) { const t = this.gesture.update(e.x, e.y, e.t); if (t) this.onGesture(t); }
     input.flickQueue.length = 0;
-    const t = this.gesture.update(input.flick.x, input.flick.y, now);
+    const t = this.gesture.update(input.flickAnalog.x, input.flickAnalog.y, now);
     if (t) this.onGesture(t);
     if (this.state === 'ride' || this.state === 'manual') this.updateGround(dt, input);
     else if (this.state === 'air') this.updateAir(dt, input);

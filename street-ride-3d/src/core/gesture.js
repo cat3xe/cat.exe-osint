@@ -32,9 +32,9 @@ export class GestureRecognizer {
     // Point de départ : premier D (regular) ou U (nollie) dans la fenêtre
     const di = seq.findIndex(isDown), ui = seq.findIndex(isUp);
     const end = seq[seq.length - 1];
-    // Zones intermédiaires : comptées seulement si le stick y reste >= 80 ms (évite les transitions parasites au clavier)
+    // Zones intermédiaires : comptées seulement si le stick y reste >= 50 ms (évite les transitions parasites au clavier)
     const nc = this.hist.filter(h => h.z !== 'C');
-    const mid = nc.slice(1, -1).filter((h, i) => (nc[i + 2].t - h.t) >= 80).map(h => h.z);
+    const mid = nc.slice(1, -1).filter((h, i) => (nc[i + 2].t - h.t) >= 50).map(h => h.z);
     const hasL = mid.includes('L') || mid.includes('DL'), hasR = mid.includes('R') || mid.includes('DR');
     // Pop regular : bas -> haut
     if (di === 0 && isUp(end)) {

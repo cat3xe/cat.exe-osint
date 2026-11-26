@@ -6,7 +6,7 @@ import { settings } from '../save/settings.js';
 export class Input {
   constructor(canvas) {
     this.keys = new Set(); this.justKeys = new Set();
-    this.move = { x: 0, y: 0 }; this.flick = { x: 0, y: 0 }; this.look = { x: 0, y: 0 };
+    this.move = { x: 0, y: 0 }; this.flick = { x: 0, y: 0 }; this.flickAnalog = { x: 0, y: 0 }; this.look = { x: 0, y: 0 };
     this.mouseStick = { x: 0, y: 0 }; this.rmb = false; this.pad = null; this.padPrev = []; this.padJust = new Set();
     this.source = 'clavier'; this.enabled = true; this.capture = null;
     this.flickQueue = []; // échantillons clavier horodatés : aucun appui court n'est perdu, même à bas FPS
@@ -68,13 +68,15 @@ export class Input {
     // Stick souris : ressort de rappel vers le centre quand on relâche
     if (!this.rmb) { this.mouseStick.x *= Math.pow(0.0001, dt); this.mouseStick.y *= Math.pow(0.0001, dt); }
     else { this.mouseStick.x *= Math.pow(0.05, dt); this.mouseStick.y *= Math.pow(0.05, dt); }
-    if (Math.abs(this.mouseStick.x) + Math.abs(this.mouseStick.y) > Math.abs(fx) + Math.abs(fy)) { fx = this.mouseStick.x; fy = this.mouseStick.y; }
+    // Analogique (souris / manette) : échantillonné en continu. Le clavier passe uniquement par flickQueue.
+    let ax = this.mouseStick.x, ay = this.mouseStick.y;
+    if (Math.abs(ax) + Math.abs(ay) > Math.abs(fx) + Math.abs(fy)) { fx = ax; fy = ay; }
     if (this.pad) {
       const a = this.pad.axes;
       if (dz(a[0]) || dz(a[1])) { mx = dz(a[0]); my = -dz(a[1]); }
-      if (dz(a[2]) || dz(a[3])) { fx = dz(a[2]); fy = -dz(a[3]); }
+      if (dz(a[2]) || dz(a[3])) { fx = ax = dz(a[2]); fy = ay = -dz(a[3]); }
     }
-    this.move.x = mx; this.move.y = my; this.flick.x = fx; this.flick.y = fy;
+    this.move.x = mx; this.move.y = my; this.flick.x = fx; this.flick.y = fy; this.flickAnalog.x = ax; this.flickAnalog.y = ay;
   }
   endFrame() { this.justKeys.clear(); this.look.x = 0; this.look.y = 0; }
 }
