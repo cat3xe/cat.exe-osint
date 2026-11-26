@@ -5,7 +5,7 @@ Jeu 3D de skateboard et trottinette freestyle en monde ouvert. **État actuel : 
 ## Lancer
 - Windows : double-clic sur `LANCER_JEU.bat` (Node.js 18+ requis).
 - Sinon : `npm install` puis `npm run dev`, ouvrir http://localhost:5173
-- Tests : `npm test` (gestes Flick-It) · `npm run build && npx vite preview --port 4173` puis `node tests/e2e.mjs` (22 vérifications dans un vrai navigateur).
+- Tests : `npm test` (gestes Flick-It) · `npm run build && npx vite preview --port 4173` puis `node tests/e2e.mjs` (22 vérifications dans un vrai navigateur) · `node tests/gamepad.mjs` (17 vérifications avec manette simulée).
 
 ## Choix technologique
 | Option | Pour | Contre |
@@ -31,6 +31,9 @@ Jeu 3D de skateboard et trottinette freestyle en monde ouvert. **État actuel : 
 | `save/` | Sauvegarde locale avec copie de secours, paramètres |
 
 Aucune clé ni mot de passe dans le client. Toutes les ressources sont générées par le code (aucun fichier sous licence).
+
+## Manette
+Compatible manettes Xbox / PlayStation / génériques reconnues par Windows (disposition standard). Jeu ET menus entièrement jouables à la manette, vibrations sur réception/grind/chute, détection branchement/débranchement (pause auto). Détail des boutons : menu Commandes.
 
 ## Ce qui fonctionne (testé)
 Pousser, freiner, tourner · ollie, nollie, kickflip, heelflip, shove-it, pop shove-it, varials, nollie flips · rotations 180/360 en l'air · stance switch/fakie · manual et nose manual avec équilibre · 50-50, 5-0, nosegrind, crooked, boardslide sur rails/ledges/coping avec équilibre · réceptions validées (flip fini, alignement, rotation) · chutes et réapparition · collisions murs · rampes qui font décoller · descendre du skate, marcher, courir, sauter · score par ligne et record sauvegardés · menus pause, paramètres graphiques (faible→ultra, résolution, distance, ombres), touches reconfigurables.

@@ -2,8 +2,31 @@ import { settings, saveSettings, QUALITY, ACTION_LABELS, DEFAULT_BINDINGS, keyLa
 // Menus réellement fonctionnels (aucun bouton décoratif : les sections à venir n'apparaissent pas encore).
 export class Menu {
   constructor(game) { this.g = game; this.el = document.getElementById('menu'); this.stack = []; }
+  // Navigation manette : D-pad / stick gauche = déplacer, A = valider, B = retour, Start = reprendre
+  pad(cmd) {
+    if (!cmd || !this.open) return;
+    const items = [...this.el.querySelectorAll('button, select, input')];
+    let i = items.indexOf(document.activeElement);
+    const cur = items[i];
+    if (cmd === 'up' || cmd === 'down') { i = i < 0 ? 0 : (i + (cmd === 'down' ? 1 : -1) + items.length) % items.length; items[i].focus(); items[i].scrollIntoView({ block: 'nearest' }); return; }
+    if (cmd === 'back') { if (this.screen === 'pause') this.g.resume(); else if (this.screen !== 'main') this.back(); return; }
+    if (cmd === 'start') { if (this.g.started) this.g.resume(); return; }
+    if (!cur) { items[0]?.focus(); return; }
+    if (cmd === 'left' || cmd === 'right') {
+      const d = cmd === 'right' ? 1 : -1;
+      if (cur.type === 'range') { cur.value = +cur.value + d * +cur.step; cur.dispatchEvent(new Event('input')); }
+      else if (cur.tagName === 'SELECT') { cur.selectedIndex = (cur.selectedIndex + d + cur.options.length) % cur.options.length; cur.dispatchEvent(new Event('change')); }
+      return;
+    }
+    if (cmd === 'ok') {
+      if (cur.type === 'checkbox') { cur.checked = !cur.checked; cur.dispatchEvent(new Event('change')); }
+      else if (cur.tagName === 'SELECT') { cur.selectedIndex = (cur.selectedIndex + 1) % cur.options.length; cur.dispatchEvent(new Event('change')); }
+      else if (cur.tagName === 'BUTTON') cur.click();
+      return;
+    }
+  }
   get open() { return !this.el.classList.contains('hidden'); }
-  show(screen) { this.el.classList.remove('hidden'); this.screen = screen; this[screen](); document.exitPointerLock?.(); }
+  show(screen) { this.el.classList.remove('hidden'); this.screen = screen; this[screen](); document.exitPointerLock?.(); if (!this.el.contains(document.activeElement) || document.activeElement === document.body) this.el.querySelector('button, select, input')?.focus(); }
   hide() { this.el.classList.add('hidden'); this.screen = null; }
   back() { this.show(this.g.started ? 'pause' : 'main'); }
   panel(html) { this.el.innerHTML = `<div class="panel">${html}</div>`; return this.el.firstChild; }
@@ -39,6 +62,13 @@ export class Menu {
       <tr><td>Monter / descendre du skate</td><td>${k('interact')} · Manette X</td></tr><tr><td>À pied : marcher / courir / sauter</td><td>${k('forward')}${k('left')}${k('back')}${k('right')} / ${k('run')} / ${k('push')}</td></tr>
       <tr><td>Réinitialiser</td><td>${k('reset')} · Manette Y</td></tr><tr><td>Caméra</td><td>Souris · ${k('camera')} change de vue · Manette RB</td></tr>
       <tr><td>Menu</td><td>Échap · Start</td></tr></table>
+      <h2 style="margin-top:14px">Manette (Xbox / PlayStation)</h2><table>
+      <tr><td>Stick gauche</td><td>Tourner, freiner (bas), rotation en l'air, équilibre</td></tr>
+      <tr><td>Stick droit</td><td>Tricks Flick-It (en skate) · caméra (à pied)</td></tr>
+      <tr><td>A / Croix · RT</td><td>Pousser / sauter</td></tr><tr><td>B / Rond</td><td>Freiner</td></tr>
+      <tr><td>X / Carré</td><td>Monter / descendre du skate</td></tr><tr><td>Y / Triangle</td><td>Réinitialiser</td></tr>
+      <tr><td>RB · LB</td><td>Changer de caméra · tourner la caméra</td></tr><tr><td>LT · L3</td><td>Courir (à pied)</td></tr>
+      <tr><td>Start · Back</td><td>Menu · aide</td></tr><tr><td>Menus</td><td>D-pad / stick gauche, A valider, B retour, ←/→ régler</td></tr></table>
       <p class="sub" style="margin-top:10px">Réception : le flip doit être terminé, la planche alignée avec la direction, la rotation proche d'un multiple de 180°.</p><button id="b">Retour</button>`);
     this.bind('b', () => this.back());
   }

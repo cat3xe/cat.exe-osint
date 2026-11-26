@@ -25,8 +25,9 @@ class Game {
     this.player = new Player(this.scene, this.physics, this.world.spawn, {
       trick: t => { this.score.trick(t); this.flashTrick(); },
       sustain: (n, p) => this.score.sustain(n, p), sustainEnd: () => this.score.sustainEnd(),
-      land: ({ sketchy }) => { if (sketchy) this.notify('Réception limite', '#ffcc33'); },
-      bail: reason => { this.score.bail(); this.notify('CHUTE — ' + reason); },
+      land: ({ sketchy }) => { this.input.rumble(sketchy ? 0.6 : 0.35, 100); if (sketchy) this.notify('Réception limite', '#ffcc33'); },
+      bail: reason => { this.score.bail(); this.notify('CHUTE — ' + reason); this.input.rumble(1, 350); },
+      grindStart: () => this.input.rumble(0.3, 90),
     });
     this.cam = new FollowCamera(this.camera);
     this.menu = new Menu(this);
@@ -35,12 +36,14 @@ class Game {
     addEventListener('keydown', e => { if (e.code === 'Escape' && this.started && !this.input.capture) this.paused ? (this.menu.screen === 'pause' ? this.resume() : this.menu.show('pause')) : this.pause(); });
     document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && this.started && !this.paused) { /* garde la partie active : clic pour recapturer */ } });
     this.menu.show('main');
+    addEventListener('gamepadconnected', e => this.notify('Manette connectée : ' + e.gamepad.id.split('(')[0].trim().slice(0, 40), '#3fd0ff'));
+    addEventListener('gamepaddisconnected', () => { this.notify('Manette déconnectée'); if (this.started && !this.paused) this.pause(); });
     window.__game = this; // accès pour les tests automatisés
     requestAnimationFrame(t => this.loop(t));
   }
   bindHud() { const q = id => document.getElementById(id); return { root: q('hud'), line: q('line-score'), combo: q('combo'), trick: q('trick'), total: q('total-score'), best: q('best'), vehicle: q('vehicle'), stance: q('stance'), speed: q('speed'), bal: q('balance'), needle: q('balance-needle'), notif: q('notif'), help: q('help') }; }
   start() { this.started = true; this.resume(); }
-  resume() { this.paused = false; this.menu.hide(); this.hud.root.classList.remove('hidden'); this.last = performance.now(); this.renderer.domElement.requestPointerLock?.(); }
+  resume() { const p = [...(navigator.getGamepads?.() || [])].find(Boolean); if (p) { this.input.padPrev = p.buttons.map(b => b.pressed); this.input.padBlock = new Set(p.buttons.map((b, i) => b.pressed ? i : -1).filter(i => i >= 0)); } this.paused = false; this.menu.hide(); this.hud.root.classList.remove('hidden'); this.last = performance.now(); this.renderer.domElement.requestPointerLock?.(); }
   pause() { this.paused = true; this.menu.show('pause'); }
   applyGraphics() {
     const q = QUALITY[settings.quality];
@@ -59,7 +62,8 @@ class Game {
     const inp = this.input; inp.update(dt);
     if (inp.just('camera')) this.notify('Caméra : ' + this.cam.next(), '#3fd0ff');
     if (inp.just('help')) this.toggleHelp();
-    if (inp.padBtn('menu', true)) this.pause();
+    if (inp.padBtn('menu', true)) { this.pause(); inp.menuPrev = inp.padPrev.slice(); }
+    if (inp.pad && this.player.mode === 'walk' && inp.padLook) { inp.look.x += inp.padLook.x * 2.5 * dt; inp.look.y += inp.padLook.y * 1.5 * dt; }
     this.player.update(dt, inp, this.cam.yaw, now);
     const b = this.player.board, grounded = this.player.mode !== 'board' || b.state === 'ride';
     const banked = this.score.update(dt, grounded);
@@ -80,12 +84,14 @@ class Game {
     h.vehicle.textContent = this.player.mode === 'board' ? 'SKATEBOARD' : 'À PIED';
     h.stance.textContent = b.switch ? 'Switch' : 'Regular';
     h.speed.textContent = Math.round(this.player.speed * 3.6);
+    const src = this.input.source; if (src !== this.lastSrc) { this.lastSrc = src; document.getElementById('help-hint').textContent = src === 'manette' ? 'Start : menu · Back : aide commandes' : 'Échap : menu · H : aide commandes'; }
     const showBal = this.player.mode === 'board' && (b.state === 'grind' || b.state === 'manual');
     h.bal.classList.toggle('hidden', !showBal); if (showBal) h.needle.style.left = (50 + b.balance * 50) + '%';
   }
   loop(t) {
     requestAnimationFrame(tt => this.loop(tt));
     const frame = Math.min(0.1, (t - this.last) / 1000); this.last = t;
+    if (this.menu.open) this.menu.pad(this.input.pollMenu());
     if (!this.paused) {
       this.acc += frame; const DT = 1 / 120; // physique à pas fixe 120 Hz
       while (this.acc >= DT) { this.simTime += DT; this.step(DT, performance.now()); this.acc -= DT; }
