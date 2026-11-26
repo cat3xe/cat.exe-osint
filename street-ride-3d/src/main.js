@@ -7,6 +7,7 @@ import { Player } from './player/player.js';
 import { FollowCamera } from './camera/followCamera.js';
 import { Menu } from './ui/menu.js';
 import { PostFX } from './world/postfx.js';
+import { DustFX } from './world/dust.js';
 import { settings, QUALITY, keyLabel } from './save/settings.js';
 
 // Point d'entrée : crée le moteur de rendu, le monde, le joueur et la boucle à pas fixe.
@@ -20,6 +21,7 @@ class Game {
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 500);
     this.world = buildTestPark(this.scene, this.renderer);
     this.postfx = new PostFX(this.renderer, this.scene, this.camera);
+    this.dust = new DustFX(this.scene);
     this.physics = new PhysicsWorld(this.world.colliders, this.world.rails);
     this.score = new ScoreSystem();
     this.hud = this.bindHud();
@@ -27,9 +29,9 @@ class Game {
     this.player = new Player(this.scene, this.physics, this.world.spawn, {
       trick: t => { this.score.trick(t); this.flashTrick(); },
       sustain: (n, p) => this.score.sustain(n, p), sustainEnd: () => this.score.sustainEnd(),
-      land: ({ sketchy }) => { this.input.rumble(sketchy ? 0.6 : 0.35, 100); if (sketchy) this.notify('Réception limite', '#ffcc33'); },
+      land: ({ sketchy }) => { this.input.rumble(sketchy ? 0.6 : 0.35, 100); this.dust.emit(this.player.board.pos, sketchy ? 10 : 6, 1); if (sketchy) this.notify('Réception limite', '#ffcc33'); },
       bail: reason => { this.score.bail(); this.notify('CHUTE — ' + reason); this.input.rumble(1, 350); },
-      grindStart: () => this.input.rumble(0.3, 90),
+      grindStart: () => { this.input.rumble(0.3, 90); this.dust.emit(this.player.board.pos, 4, 0.6); },
     });
     this.cam = new FollowCamera(this.camera);
     this.menu = new Menu(this);
@@ -68,6 +70,7 @@ class Game {
     if (inp.pad && this.player.mode === 'walk' && inp.padLook) { inp.look.x += inp.padLook.x * 2.5 * dt; inp.look.y += inp.padLook.y * 1.5 * dt; }
     this.player.update(dt, inp, this.cam.yaw, now);
     const b = this.player.board, grounded = this.player.mode !== 'board' || b.state === 'ride';
+    this.dust.update(dt);
     const banked = this.score.update(dt, grounded);
     if (banked) this.notify('+' + banked + ' pts', '#35d07f');
     this.cam.update(dt, this.player.focus, this.player.heading, inp, this.physics, this.player.mode === 'board');

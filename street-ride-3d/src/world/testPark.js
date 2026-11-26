@@ -108,6 +108,16 @@ export function buildTestPark(scene, renderer) {
   }
   // Immeubles en fond (silhouettes)
   for (let i = 0; i < 10; i++) { const h = 15 + Math.round(Math.random() * 6) * 5; box(14, h, 14, -90 + i * 20, 0, -80 - Math.random() * 10, i % 2 ? M.painted : M.brick); }
+  // Décor de rue : trottoir en bordure, lampadaires, bancs, poubelles
+  const curbM = M.concrete;
+  for (const z of [-55, 40]) box(240, 0.15, 1.2, 0, 0, z, curbM);
+  for (let i = 0; i < 8; i++) {
+    const x = -60 + i * 17;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 5, 10), M.metal); pole.position.set(x, 2.5, 40 - 1); add(pole, false);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffe2a0, emissiveIntensity: 0.8 })); lamp.position.set(x, 5.1, 39); add(lamp, false);
+  }
+  for (const x of [-30, 10]) { box(2, 0.45, 0.5, x, 0, 37, M.wood); }
+  for (const x of [-45, 25]) { box(0.6, 0.9, 0.6, x, 0, 37.5, M.metal); }
   // UV en mètres pour toutes les surfaces texturées PBR
   scene.traverse(o => { if (o.isMesh) worldUV(o); });
   return { colliders, rails, spawn: new THREE.Vector3(0, 0, 6), sunLight: L.sun, sunDir: L.sunDir, ready: L.ready };
