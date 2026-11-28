@@ -1,0 +1,23 @@
+{
+  "name": "airpods-pro-ad",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "audio": "node scripts/make-audio.mjs",
+    "render": "node scripts/make-audio.mjs && remotion render src/index.ts AirPodsAd out/airpods-pro-ad.mp4 --codec=h264 --audio-codec=aac --audio-bitrate=320k --concurrency=2",
+    "still": "remotion still src/index.ts AirPodsAd"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.105.6",
+    "@react-three/fiber": "^8.16.8",
+    "@remotion/cli": "^4.0.260",
+    "@remotion/three": "^4.0.260",
+    "@types/react": "^18.3.3",
+    "@types/three": "^0.160.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.260",
+    "three": "^0.160.1",
+    "typescript": "^5.4.5"
+  }
+}
