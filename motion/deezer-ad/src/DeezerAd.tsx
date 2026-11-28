@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Audio, Easing, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 
 // ---------- Réglages ----------
 export const FPS = 30;
@@ -392,6 +392,7 @@ const Flash: React.FC<{at: number}> = ({at}) => {
 // ---------- Scène complète ----------
 export const DeezerAd: React.FC = () => (
   <AbsoluteFill>
+    <Audio src={staticFile('beat.wav')} volume={0.9} />
     <Background />
     <Sequence from={0} durationInFrames={90}><SceneHook /></Sequence>
     <Sequence from={90} durationInFrames={120}><SceneSlogan /></Sequence>
