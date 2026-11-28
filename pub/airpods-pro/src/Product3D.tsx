@@ -5,31 +5,31 @@ import {useThree} from '@react-three/fiber';
 import {RoundedBox} from '@react-three/drei';
 import * as THREE from 'three';
 import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js';
-import {C, W, H, T} from './theme';
+import {C, W, H, T, DURATION} from './theme';
 
 // Écouteur : pièce de révolution (lathe) avec tige qui s'évase vers la bulle.
 function earbudGeometry(): THREE.LatheGeometry {
   const pts: THREE.Vector2[] = [];
-  pts.push(new THREE.Vector2(0.0, -1.0));
-  pts.push(new THREE.Vector2(0.05, -0.99));
-  pts.push(new THREE.Vector2(0.085, -0.9));
-  pts.push(new THREE.Vector2(0.1, -0.6));
-  pts.push(new THREE.Vector2(0.12, -0.3));
-  // Bulle : s'évase depuis la tige (r 0.12) jusqu'au bombé (r 0.36)
-  for (let i = 1; i <= 48; i++) {
-    const a = (i / 48) * Math.PI;
-    const r = 0.12 + 0.24 * Math.pow(Math.sin(a), 0.5);
-    const y = -0.3 + 0.85 * (1 - Math.cos(a)) * 0.5;
+  // Forme originale « galet » : tige courte et fine, bulle ovale plus large
+  pts.push(new THREE.Vector2(0.0, -0.9));
+  pts.push(new THREE.Vector2(0.06, -0.86));
+  pts.push(new THREE.Vector2(0.075, -0.7));
+  pts.push(new THREE.Vector2(0.09, -0.45));
+  // Bulle : s'évase depuis la tige (r 0.09) jusqu'au bombé (r 0.4)
+  for (let i = 1; i <= 64; i++) {
+    const a = (i / 64) * Math.PI;
+    const r = 0.09 + 0.31 * Math.pow(Math.sin(a), 0.7);
+    const y = -0.45 + 0.9 * (1 - Math.cos(a)) * 0.5;
     pts.push(new THREE.Vector2(r, y));
   }
-  pts.push(new THREE.Vector2(0.0, 0.56));
+  pts.push(new THREE.Vector2(0.0, 0.45));
   return new THREE.LatheGeometry(pts, 96);
 }
 
 const Scene: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const {gl, scene} = useThree();
+  const {gl, scene, camera} = useThree();
 
   // Environnement studio (réflexions propres sur le plastique / métal)
   useMemo(() => {
@@ -38,6 +38,14 @@ const Scene: React.FC = () => {
   }, [gl, scene]);
 
   const earbud = useMemo(() => earbudGeometry(), []);
+
+  // Caméra : push-in lent sur le hero, retrait pour les features, rapprochement final
+  camera.position.z = interpolate(frame, [T.hero, T.features, T.end, DURATION], [5, 4.3, 4.0, 4.6], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+    easing: Easing.inOut(Easing.cubic),
+  });
+  camera.lookAt(0, 0, 0);
   const bodyMat = useMemo(
     () =>
       new THREE.MeshPhysicalMaterial({
